@@ -42,7 +42,8 @@
           (*debug-io* (make-two-way-stream *debug-io* stream))
           (*query-io* (make-two-way-stream *query-io* stream)))
        (format stream "~&=> ~{~a~^, ~}"
-               (multiple-value-list (eval (read-from-string string)))))))
+               (with-graphic-debugger
+                (multiple-value-list (eval (read-from-string string))))))))
 
 (defun evaluate (window)
   (with-slots (input output) window
