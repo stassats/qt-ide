@@ -19,6 +19,19 @@
            (#_exec *qapp*))
       (#_hide *main-window*))))
 
+(defun exec-window (window &optional modal)
+  (cond ((not *main-window*)
+         (#_exec window))
+        (modal
+         (#_exec window))
+        (t
+         (#_show window))))
+
+(defmacro without-parent (function)
+  `(lambda (x)
+     (declare (ignore x))
+     (,function)))
+
 (defclass main-window ()
   ((save-button :initform nil
                 :accessor save-button)
@@ -28,7 +41,9 @@
   (:metaclass qt-class)
   (:qt-superclass "QMainWindow")
   (:slots
-   ("openFile()" open-file)))
+   ("openFile()" open-file)
+   ("showRepl()"
+    (without-parent repl))))
 
 (defmethod initialize-instance :after ((window main-window) &key)
   (new window)
@@ -44,7 +59,10 @@
     (setf (text-edit window) text-edit)
     (add-qaction toolbar "Open file" window "openFile()"
                  :icon "document-open"
-                 :key "Ctrl+o")))
+                 :key "Ctrl+o")
+    (add-qaction toolbar "REPL" window "showRepl()"
+                 :icon "utilities-terminal"
+                 :key "Ctrl+r")))
 
 (defun open-file (window)
   (let ((file (car (file-dialog :parent window))))
