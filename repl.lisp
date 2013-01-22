@@ -14,24 +14,68 @@
   ((input :initarg :input
           :initform nil
           :accessor input)
-   (output :initarg :output
+   (scene :initarg :scene
            :initform nil
-           :accessor output))
+           :accessor scene)
+   (layout :initarg :layout
+           :initform nil
+           :accessor layout)
+   (last-output-position :initarg :last-output-position
+                         :initform 0
+                         :accessor last-output-position)
+   (view :initarg :view
+         :initform nil
+         :accessor view))
   (:metaclass qt-class)
   (:qt-superclass "QDialog")
   (:slots
    ("evaluate()" evaluate)))
 
+(defclass repl-input ()
+  ()
+  (:metaclass qt-class)
+  (:qt-superclass "QGraphicsTextItem")
+  (:override ("keyPressEvent" key-press-event)
+             ("keyReleaseEvent" key-release-event))
+  (:slots)
+  (:signals ("returnPressed()")))
+
+(defmethod key-press-event ((widget repl-input) event)
+  (let ((key (#_key event)))
+    (cond ((or (= key (primitive-value (#_Qt::Key_Return)))
+               (= key (primitive-value (#_Qt::Key_Enter))))
+           (#_accept event)
+           (emit-signal widget "returnPressed()"))
+          (t
+           (stop-overriding)))))
+
+(defmethod key-release-event ((widget repl-input) event)
+  (let ((key (#_key event)))
+    (if (or (= key (primitive-value (#_Qt::Key_Return)))
+            (= key (primitive-value (#_Qt::Key_Enter))))
+        (#_ensureVisible widget)
+        (stop-overriding))))
+
+(defmethod initialize-instance :after ((widget repl-input) &key scene)
+  (new-instance widget "")
+  (#_setTextInteractionFlags widget (enum-or (#_Qt::TextSelectableByMouse)
+                                             (#_Qt::TextSelectableByKeyboard)
+                                             (#_Qt::TextEditable)))
+  (#_addItem scene widget))
+
 (defmethod initialize-instance :after ((window repl) &key parent)
   (new-instance window parent)
   (#_setWindowTitle window "REPL")
-  (let ((output (#_new QTextEdit))
-        (input (#_new QLineEdit))
-        (vbox (#_new QVBoxLayout window)))
-    (add-widgets vbox output input)
-    (#_setFocus input)
+  (let* ((scene (#_new QGraphicsScene window))
+         (view (#_new QGraphicsView scene window))
+         (vbox (#_new QVBoxLayout window))
+         (input (make-instance 'repl-input :scene scene)))
+    (#_setAlignment view (enum-or (#_Qt::AlignLeft) (#_Qt::AlignTop)))
+    (add-widgets vbox view)
     (setf (input window) input
-          (output window) output)
+          (scene window) scene
+          (view window) view)
+    (#_setFocus input)
     (connect input "returnPressed()"
              window "evaluate()")))
 
@@ -46,9 +90,13 @@
                 (multiple-value-list (eval (read-from-string string))))))))
 
 (defun evaluate (window)
-  (with-slots (input output) window
-    (let ((text (#_text input)))
-     (#_append output
-               (format nil "~a~%~a" text
-                       (evaluate-string text))))
-    (#_clear input)))
+  (with-slots (input scene last-output-position view) window
+    (let* ((text (#_toPlainText input))
+           (text (#_addText scene (format nil "~a~%~a" text
+                                          (evaluate-string text)))))
+      (#_setTextInteractionFlags text (enum-or (#_Qt::TextSelectableByMouse)
+                                               (#_Qt::TextSelectableByKeyboard)))
+      (#_setPos text 0 last-output-position)
+      (incf last-output-position (#_height (#_boundingRect text)))
+      (#_setPlainText input "")
+      (#_setPos input 0 last-output-position))))
