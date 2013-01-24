@@ -35,8 +35,7 @@
   ()
   (:metaclass qt-class)
   (:qt-superclass "QGraphicsTextItem")
-  (:override ("keyPressEvent" key-press-event)
-             ("keyReleaseEvent" key-release-event))
+  (:override ("keyPressEvent" key-press-event))
   (:slots)
   (:signals ("returnPressed()")))
 
@@ -48,13 +47,6 @@
            (emit-signal widget "returnPressed()"))
           (t
            (stop-overriding)))))
-
-(defmethod key-release-event ((widget repl-input) event)
-  (let ((key (#_key event)))
-    (if (or (= key (primitive-value (#_Qt::Key_Return)))
-            (= key (primitive-value (#_Qt::Key_Enter))))
-        (#_ensureVisible widget)
-        (stop-overriding))))
 
 (defmethod initialize-instance :after ((widget repl-input) &key scene)
   (new-instance widget "")
@@ -70,14 +62,17 @@
   (let* ((scene (#_new QGraphicsScene window))
          (view (#_new QGraphicsView scene window))
          (vbox (#_new QVBoxLayout window))
-         (input (make-instance 'repl-input :scene scene)))
+         (input (make-instance 'repl-input :scene scene))
+         (button (#_new QPushButton "eval")))
     (#_setAlignment view (enum-or (#_Qt::AlignLeft) (#_Qt::AlignTop)))
-    (add-widgets vbox view)
+    (add-widgets vbox button view)
     (setf (input window) input
           (scene window) scene
           (view window) view)
     (#_setFocus input)
     (connect input "returnPressed()"
+             window "evaluate()")
+    (connect button "clicked()"
              window "evaluate()")))
 
 (defun evaluate-string (string)
@@ -95,10 +90,13 @@
     (let* ((text (#_toPlainText input))
            (text (#_addText scene (format nil "~a~%~a" text
                                           (evaluate-string text))
-                            *default-qfont*)))
+                            *default-qfont*))
+           (height (#_height (#_sceneBoundingRect text)))
+           (scroll-bar (#_verticalScrollBar view)))
       (#_setTextInteractionFlags text (enum-or (#_Qt::TextSelectableByMouse)
                                                (#_Qt::TextSelectableByKeyboard)))
-      (#_setPos text 0 last-output-position)
-      (incf last-output-position (#_height (#_boundingRect text)))
+      (#_setY text last-output-position)
       (#_setPlainText input "")
-      (#_setPos input 0 last-output-position))))
+      (#_setMaximum scroll-bar (+ (#_maximum scroll-bar) (ceiling height)))
+      (#_setY input (incf last-output-position height))
+      (#_ensureVisible input))))
