@@ -8,10 +8,14 @@
 
 (defvar *qapp* nil)
 (defvar *main-window* nil)
+(defvar *default-qfont* nil)
+(defvar *default-font* "DejaVu Sans Mono 13")
 
 (defun ide ()
   (unless *qapp*
     (setf *qapp* (make-qapplication)))
+  (unless *default-qfont*
+    (setf *default-qfont* (#_new QFont *default-font*)))
   (let ((*main-window* (make-instance 'main-window)))
     (unwind-protect
          (progn

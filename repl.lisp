@@ -61,7 +61,8 @@
   (#_setTextInteractionFlags widget (enum-or (#_Qt::TextSelectableByMouse)
                                              (#_Qt::TextSelectableByKeyboard)
                                              (#_Qt::TextEditable)))
-  (#_addItem scene widget))
+  (#_addItem scene widget)
+  (#_setFont widget *default-qfont*))
 
 (defmethod initialize-instance :after ((window repl) &key parent)
   (new-instance window parent)
@@ -93,7 +94,8 @@
   (with-slots (input scene last-output-position view) window
     (let* ((text (#_toPlainText input))
            (text (#_addText scene (format nil "~a~%~a" text
-                                          (evaluate-string text)))))
+                                          (evaluate-string text))
+                            *default-qfont*)))
       (#_setTextInteractionFlags text (enum-or (#_Qt::TextSelectableByMouse)
                                                (#_Qt::TextSelectableByKeyboard)))
       (#_setPos text 0 last-output-position)
