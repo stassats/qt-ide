@@ -15,7 +15,8 @@
   (unless *qapp*
     (setf *qapp* (make-qapplication)))
   (unless *default-qfont*
-    (setf *default-qfont* (#_new QFont *default-font*)))
+    (setf *default-qfont* (#_new QFont *default-font*))
+    (#_setFixedPitch *default-qfont* t))
   (let ((*main-window* (make-instance 'main-window)))
     (unwind-protect
          (progn
