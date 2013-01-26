@@ -106,7 +106,7 @@
            (text (#_addText scene (format nil "~a~%~a" string-to-eval
                                           (evaluate-string string-to-eval))
                             *default-qfont*))
-           (height (#_height (#_sceneBoundingRect text)))
+           (height (#_rheight (#_size (#_document text))))
            (scroll-bar (#_verticalScrollBar view)))
       (#_setTextInteractionFlags text (enum-or (#_Qt::TextSelectableByMouse)
                                                (#_Qt::TextSelectableByKeyboard)))
