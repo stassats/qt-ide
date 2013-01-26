@@ -140,6 +140,13 @@
                (with-graphic-debugger
                 (multiple-value-list (eval (read-from-string string))))))))
 
+(defun adjust-history (new-input)
+  (unless (equal new-input (car *repl-history*))
+    (let ((stripped (string-trim #(#\Space #\Newline #\Tab #\Return) new-input)))
+      (setf *repl-history*
+            (cons stripped
+                  (remove stripped *repl-history* :test #'equal))))))
+
 (defun evaluate (window)
   (with-slots (input scene last-output-position view
                package-indicator)
@@ -157,7 +164,7 @@
       (#_setMaximum scroll-bar (+ (#_maximum scroll-bar) (ceiling height)))
       (update-input (incf last-output-position height)
                     window)
-      (push string-to-eval *repl-history*)
+      (adjust-history string-to-eval)
       (setf (history-index input) -1))))
 
 (defun choose-history (window previous-p)
