@@ -176,4 +176,7 @@
       (setf (history-index input) next-index )
       (#_setPlainText input (if (= next-index -1)
                                 (current-input input)
-                                (nth next-index *repl-history*))))))
+                                (nth next-index *repl-history*)))
+      (let ((cursor (#_textCursor input)))
+        (#_movePosition cursor (#_QTextCursor::End))
+        (#_setTextCursor input cursor)))))
