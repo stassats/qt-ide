@@ -6,18 +6,41 @@
 (in-package #:qt-ide)
 (named-readtables:in-readtable :qt)
 
-(defun repl (&key modal)
-  (exec-window (make-instance 'repl) modal))
-
 (defvar *repl-history* nil)
+(defvar *package-indicator-color* nil)
+
+(defun repl (&key modal)
+  (let ((*package* *package*)
+        (* *)
+        (** **)
+        (*** ***)
+        (/ /)
+        (// //)
+        (/// ///)
+        (+ +)
+        (++ ++)
+        (+++ +++)
+        (- -))
+    (exec-window (make-instance 'repl) modal)))
+
+(defun short-package-name (package)
+  (let* ((name (package-name package))
+         (shortest (length name)))
+    (loop for nickname in (package-nicknames package)
+          when (< (length nickname) shortest)
+          do (setf name nickname)) 
+    name))
 
 (defclass repl ()
   ((input :initarg :input
           :initform nil
           :accessor input)
+   (package-indicator :initarg :package-indicator
+                      :initform nil
+                      :accessor package-indicator)
    (scene :initarg :scene
-           :initform nil
-           :accessor scene)
+          :initform nil
+          :accessor scene)
    (layout :initarg :layout
            :initform nil
            :accessor layout)
@@ -43,10 +66,9 @@
   (:metaclass qt-class)
   (:qt-superclass "QGraphicsTextItem")
   (:override ("keyPressEvent" key-press-event))
-  (:slots)
   (:signals
-      ("returnPressed()")
-    ("history(bool)")))
+   ("returnPressed()")
+   ("history(bool)")))
 
 (defmethod key-press-event ((widget repl-input) event)
   (let ((key (#_key event)))
@@ -78,12 +100,20 @@
   (let* ((scene (#_new QGraphicsScene window))
          (view (#_new QGraphicsView scene window))
          (vbox (#_new QVBoxLayout window))
-         (input (make-instance 'repl-input :scene scene)))
+         (input (make-instance 'repl-input :scene scene))
+         (package-indicator (#_addText scene (format nil "~a> "(short-package-name *package*))
+                                       *default-qfont*)))
     (#_setAlignment view (enum-or (#_Qt::AlignLeft) (#_Qt::AlignTop)))
     (add-widgets vbox view)
     (setf (input window) input
+          (package-indicator window) package-indicator
           (scene window) scene
           (view window) view)
+    (#_setDefaultTextColor package-indicator
+                       (or *package-indicator-color*
+                           (setf *package-indicator-color*
+                                 (#_new QColor "#a020f0"))))
+    (#_setX input (#_rwidth (#_size (#_document package-indicator))))
     (#_setFocus input)
     (connect input "returnPressed()"
              window "evaluate()")
@@ -101,7 +131,9 @@
                 (multiple-value-list (eval (read-from-string string))))))))
 
 (defun evaluate (window)
-  (with-slots (input scene last-output-position view) window
+  (with-slots (input scene last-output-position view
+               package-indicator)
+      window
     (let* ((string-to-eval (#_toPlainText input))
            (text (#_addText scene (format nil "~a~%~a" string-to-eval
                                           (evaluate-string string-to-eval))
@@ -112,8 +144,11 @@
                                                (#_Qt::TextSelectableByKeyboard)))
       (#_setY text last-output-position)
       (#_setPlainText input "")
+      (#_setPlainText package-indicator (format nil "~a> "(short-package-name *package*)))
       (#_setMaximum scroll-bar (+ (#_maximum scroll-bar) (ceiling height)))
-      (#_setY input (incf last-output-position height))
+      (#_setPos input (#_rwidth (#_size (#_document package-indicator)))
+                (incf last-output-position height))
+      (#_setY package-indicator last-output-position)
       (#_ensureVisible input)
       (push string-to-eval *repl-history*)
       (setf (history-index input) -1))))
