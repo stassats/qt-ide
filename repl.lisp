@@ -94,6 +94,17 @@
   (#_addItem scene widget)
   (#_setFont widget *default-qfont*))
 
+(defun update-input (y window)
+  (with-slots (input package-indicator)
+      window
+    (#_setPlainText input "")
+    (#_setPlainText package-indicator
+                    (format nil "~a>" (short-package-name *package*)))
+    (#_setPos input (#_rwidth (#_size (#_document package-indicator)))
+              y)
+    (#_setY package-indicator y)
+    (#_ensureVisible input)))
+
 (defmethod initialize-instance :after ((window repl) &key parent)
   (new-instance window parent)
   (#_setWindowTitle window "REPL")
@@ -101,8 +112,7 @@
          (view (#_new QGraphicsView scene window))
          (vbox (#_new QVBoxLayout window))
          (input (make-instance 'repl-input :scene scene))
-         (package-indicator (#_addText scene (format nil "~a> "(short-package-name *package*))
-                                       *default-qfont*)))
+         (package-indicator (#_addText scene "" *default-qfont*)))
     (#_setAlignment view (enum-or (#_Qt::AlignLeft) (#_Qt::AlignTop)))
     (add-widgets vbox view)
     (setf (input window) input
@@ -113,7 +123,7 @@
                        (or *package-indicator-color*
                            (setf *package-indicator-color*
                                  (#_new QColor "#a020f0"))))
-    (#_setX input (#_rwidth (#_size (#_document package-indicator))))
+    (update-input 0 window)
     (#_setFocus input)
     (connect input "returnPressed()"
              window "evaluate()")
@@ -135,7 +145,8 @@
                package-indicator)
       window
     (let* ((string-to-eval (#_toPlainText input))
-           (text (#_addText scene (format nil "~a~%~a" string-to-eval
+           (text (#_addText scene (format nil "~a> ~a~%~a" (short-package-name *package*)
+                                          string-to-eval
                                           (evaluate-string string-to-eval))
                             *default-qfont*))
            (height (#_rheight (#_size (#_document text))))
@@ -143,13 +154,9 @@
       (#_setTextInteractionFlags text (enum-or (#_Qt::TextSelectableByMouse)
                                                (#_Qt::TextSelectableByKeyboard)))
       (#_setY text last-output-position)
-      (#_setPlainText input "")
-      (#_setPlainText package-indicator (format nil "~a> "(short-package-name *package*)))
       (#_setMaximum scroll-bar (+ (#_maximum scroll-bar) (ceiling height)))
-      (#_setPos input (#_rwidth (#_size (#_document package-indicator)))
-                (incf last-output-position height))
-      (#_setY package-indicator last-output-position)
-      (#_ensureVisible input)
+      (update-input (incf last-output-position height)
+                    window)
       (push string-to-eval *repl-history*)
       (setf (history-index input) -1))))
 
