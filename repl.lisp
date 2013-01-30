@@ -65,7 +65,8 @@
                   :accessor current-input))
   (:metaclass qt-class)
   (:qt-superclass "QGraphicsTextItem")
-  (:override ("keyPressEvent" key-press-event))
+  (:override ("keyPressEvent" key-press-event)
+             ("paint" graphics-item-paint))
   (:signals
    ("returnPressed()")
    ("history(bool)")))
@@ -86,11 +87,20 @@
            (setf (history-index widget) -1)
            (stop-overriding)))))
 
+(defgeneric graphics-item-paint (item painter option widget))
+
+(defmethod graphics-item-paint ((item repl-input) painter option widget)
+  (#_setState option (enum-andc (#_state option)
+                                (#_QStyle::State_Selected)
+                                (#_QStyle::State_HasFocus)))
+  (stop-overriding))
+
 (defmethod initialize-instance :after ((widget repl-input) &key scene)
   (new-instance widget "")
   (#_setTextInteractionFlags widget (enum-or (#_Qt::TextSelectableByMouse)
                                              (#_Qt::TextSelectableByKeyboard)
                                              (#_Qt::TextEditable)))
+  (#_setDocumentMargin (#_document widget) 1)
   (#_addItem scene widget)
   (#_setFont widget *default-qfont*))
 
@@ -99,7 +109,7 @@
       window
     (#_setPlainText input "")
     (#_setPlainText package-indicator
-                    (format nil "~a>" (short-package-name *package*)))
+                    (format nil "~a> " (short-package-name *package*)))
     (#_setPos input (#_rwidth (#_size (#_document package-indicator)))
               y)
     (#_setY package-indicator y)
@@ -123,6 +133,7 @@
                        (or *package-indicator-color*
                            (setf *package-indicator-color*
                                  (#_new QColor "#a020f0"))))
+    (#_setDocumentMargin (#_document package-indicator) 1)
     (update-input 0 window)
     (#_setFocus input)
     (connect input "returnPressed()"
@@ -156,7 +167,9 @@
                                           string-to-eval
                                           (evaluate-string string-to-eval))
                             *default-qfont*))
-           (height (#_rheight (#_size (#_document text))))
+           (height (progn
+                     (#_setDocumentMargin (#_document text) 1)
+                     (#_rheight (#_size (#_document text)))))
            (scroll-bar (#_verticalScrollBar view)))
       (#_setTextInteractionFlags text (enum-or (#_Qt::TextSelectableByMouse)
                                                (#_Qt::TextSelectableByKeyboard)))
