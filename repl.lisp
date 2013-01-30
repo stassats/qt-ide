@@ -9,7 +9,7 @@
 (defvar *repl-history* nil)
 (defvar *package-indicator-color* nil)
 
-(defun repl (&key modal)
+(defun repl ()
   (let ((*package* *package*)
         (* *)
         (** **)
@@ -21,7 +21,7 @@
         (++ ++)
         (+++ +++)
         (- -))
-    (exec-window (make-instance 'repl) modal)))
+    (exec-window (make-instance 'repl))))
 
 (defun short-package-name (package)
   (let* ((name (package-name package))

@@ -7,4 +7,5 @@
   :components ((:file "packages")
                (:file "qt-ide")
                (:file "debugger")
-               (:file "repl")))
+               (:file "repl")
+               (:file "inspector")))
