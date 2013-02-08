@@ -49,7 +49,7 @@
     (setf (slot-value window 'restarts) restarts)
     (with-layout (hbox "QHBoxLayout" vbox)
       (let ((icon (#_new QLabel)))
-        (#_setPixmap icon (#_pixmap (#_fromTheme "QIcon" "dialog-error") 32 32))
+        (#_setPixmap icon (#_pixmap (#_QIcon::fromTheme "dialog-error") 32 32))
         (add-widgets hbox icon)
         (output-text hbox (princ-to-string condition) :size 18)
         (#_addStretch hbox)))
