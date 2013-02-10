@@ -31,7 +31,7 @@
           do (setf name nickname)) 
     name))
 
-(defclass repl ()
+(defclass repl (window)
   ((input :initarg :input
           :initform nil
           :accessor input)
@@ -54,7 +54,8 @@
   (:qt-superclass "QDialog")
   (:slots
    ("evaluate()" evaluate)
-   ("history(bool)" choose-history)))
+   ("history(bool)" choose-history))
+  (:default-initargs :title "REPL"))
 
 (defclass repl-input ()
   ((history-index :initarg :history-index
@@ -115,9 +116,7 @@
     (#_setY package-indicator y)
     (#_ensureVisible input)))
 
-(defmethod initialize-instance :after ((window repl) &key parent)
-  (new-instance window parent)
-  (#_setWindowTitle window "REPL")
+(defmethod initialize-instance :after ((window repl) &key)
   (let* ((scene (#_new QGraphicsScene window))
          (view (#_new QGraphicsView scene window))
          (vbox (#_new QVBoxLayout window))
@@ -130,9 +129,9 @@
           (scene window) scene
           (view window) view)
     (#_setDefaultTextColor package-indicator
-                       (or *package-indicator-color*
-                           (setf *package-indicator-color*
-                                 (#_new QColor "#a020f0"))))
+                           (or *package-indicator-color*
+                               (setf *package-indicator-color*
+                                     (#_new QColor "#a020f0"))))
     (#_setDocumentMargin (#_document package-indicator) 1)
     (update-input 0 window)
     (#_setFocus input)
