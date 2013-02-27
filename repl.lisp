@@ -105,16 +105,49 @@
   (#_addItem scene widget)
   (#_setFont widget *default-qfont*))
 
-(defun update-input (y window)
-  (with-slots (input package-indicator)
+(defclass result-presentation ()
+  ((value :initarg :value
+          :initform nil
+          :accessor value))
+  (:metaclass qt-class)
+  (:qt-superclass "QGraphicsTextItem")
+  (:override ("contextMenuEvent" context-menu-event)
+   ;; ("paint" graphics-item-paint)
+   )
+  (:slots ("inspect()" (lambda (x)
+                         (inspector (value x))))))
+
+(defmethod initialize-instance :after ((widget result-presentation)
+                                       &key text scene)
+  (new-instance widget text)
+  (#_setTextInteractionFlags widget (enum-or (#_Qt::TextSelectableByMouse)
+                                             (#_Qt::TextSelectableByKeyboard)))
+  (#_setDocumentMargin (#_document widget) 1)
+  (#_addItem scene widget)
+  (#_setFont widget *default-qfont*)
+  (#_setDefaultTextColor widget (#_new QColor "#ff0000")))
+
+(defgeneric context-menu-event (widget event))
+
+(defmethod context-menu-event ((widget result-presentation) event)
+  (let ((menu (#_new QMenu)))
+    (add-qaction menu "Inspect"
+                 widget
+                 "inspect()")
+    (#_exec menu (#_screenPos event))))
+
+;;;
+
+(defun update-input (window)
+  (with-slots (input last-output-position package-indicator)
       window
     (#_setPlainText input "")
     (#_setPlainText package-indicator
                     (format nil "~a> " (short-package-name *package*)))
     (#_setPos input (- (#_rwidth (#_size (#_document package-indicator)))
                        2) ;; margins
-              y)
-    (#_setY package-indicator y)
+              last-output-position)
+    (#_setY package-indicator last-output-position)
     (#_ensureVisible input)))
 
 (defmethod initialize-instance :after ((window repl) &key)
@@ -134,7 +167,7 @@
                                (setf *package-indicator-color*
                                      (#_new QColor "#a020f0"))))
     (#_setDocumentMargin (#_document package-indicator) 1)
-    (update-input 0 window)
+    (update-input window)
     (#_setFocus input)
     (connect input "returnPressed()"
              window "evaluate()")
@@ -142,14 +175,17 @@
              window "history(bool)")))
 
 (defun evaluate-string (string)
-  (with-output-to-string (stream)
-    (let ((*standard-output* stream)
-          (*error-output* stream)
-          (*debug-io* (make-two-way-stream *debug-io* stream))
-          (*query-io* (make-two-way-stream *query-io* stream)))
-       (format stream "~&=> ~{~a~^, ~}"
+  (let* (results
+         (output
+           (with-output-to-string (stream)
+             (let ((*standard-output* stream)
+                   (*error-output* stream)
+                   (*debug-io* (make-two-way-stream *debug-io* stream))
+                   (*query-io* (make-two-way-stream *query-io* stream)))
                (with-graphic-debugger
-                (multiple-value-list (eval (read-from-string string))))))))
+                 (setf results (multiple-value-list
+                                (eval (read-from-string string)))))))))
+    (values results output)))
 
 (defun adjust-history (new-input)
   (unless (equal new-input (car *repl-history*))
@@ -158,15 +194,10 @@
             (cons stripped
                   (remove stripped *repl-history* :test #'equal))))))
 
-(defun evaluate (window)
-  (with-slots (input scene last-output-position view
-               package-indicator)
+(defun add-text-to-repl (text window)
+  (with-slots (input scene last-output-position view)
       window
-    (let* ((string-to-eval (#_toPlainText input))
-           (text (#_addText scene (format nil "~a> ~a~%~a" (short-package-name *package*)
-                                          string-to-eval
-                                          (evaluate-string string-to-eval))
-                            *default-qfont*))
+    (let* ((text (#_addText scene text *default-qfont*))
            (height (progn
                      (#_setDocumentMargin (#_document text) 1)
                      (#_rheight (#_size (#_document text)))))
@@ -175,10 +206,49 @@
                                                (#_Qt::TextSelectableByKeyboard)))
       (#_setY text last-output-position)
       (#_setMaximum scroll-bar (+ (#_maximum scroll-bar) (ceiling height)))
-      (update-input (incf last-output-position height)
-                    window)
-      (adjust-history string-to-eval)
-      (setf (history-index input) -1))))
+      (incf last-output-position height))))
+
+(defun add-result-to-repl (value window)
+  (with-slots (input scene last-output-position view)
+      window
+    (let* ((text (make-instance 'result-presentation
+                                :scene scene
+                                :value value
+                                :text (prin1-to-string value)))
+           (height (progn
+                     (#_setDocumentMargin (#_document text) 1)
+                     (#_rheight (#_size (#_document text)))))
+           (scroll-bar (#_verticalScrollBar view)))
+      (#_setY text last-output-position)
+      (#_setMaximum scroll-bar (+ (#_maximum scroll-bar) (ceiling height)))
+      (incf last-output-position height))))
+
+(defun add-results (results window)
+  (cond ((null results)
+         (add-text-to-repl "; No values" window)) ;
+        (t
+         (loop for result in results
+               do (add-result-to-repl result window)))))
+
+(defun evaluate (window)
+  (with-slots (input scene last-output-position view
+               package-indicator)
+      window
+    (let ((string-to-eval (#_toPlainText input)))
+      (multiple-value-bind (values output)
+          (evaluate-string string-to-eval)
+        (add-text-to-repl
+         (format nil "~a> ~a~@[~%~a~]"
+                 (short-package-name *package*)
+                 string-to-eval
+                 (if (equal output "")
+                     nil
+                     output))
+         window)
+        (add-results values window)
+        (update-input window)
+        (adjust-history string-to-eval)
+        (setf (history-index input) -1)))))
 
 (defun choose-history (window previous-p)
   (with-slots (input scene last-output-position view) window
