@@ -28,7 +28,7 @@
          (shortest (length name)))
     (loop for nickname in (package-nicknames package)
           when (< (length nickname) shortest)
-          do (setf name nickname)) 
+          do (setf name nickname))
     name))
 
 (defclass repl (window)
@@ -57,7 +57,29 @@
    ("history(bool)" choose-history))
   (:default-initargs :title "REPL"))
 
-(defclass repl-input ()
+(defclass text-item ()
+  ()
+  (:metaclass qt-class)
+  (:qt-superclass "QGraphicsTextItem")
+  (:override ("contextMenuEvent" context-menu-event)))
+
+(defmethod initialize-instance :after ((widget text-item) &key (text "") scene)
+  (new-instance widget text)
+  (#_setTextInteractionFlags widget (enum-or (#_Qt::TextSelectableByMouse)
+                                             (#_Qt::TextSelectableByKeyboard)
+                                             (#_Qt::TextEditable)))
+  (#_setDocumentMargin (#_document widget) 1)
+  (#_addItem scene widget)
+  (#_setFont widget *default-qfont*))
+
+(defmethod context-menu-event ((widget text-item) event)
+  (let ((menu (context-menu widget)))
+    (when menu
+      (#_exec menu (#_screenPos event)))))
+
+;;;
+
+(defclass repl-input (text-item)
   ((history-index :initarg :history-index
                   :initform -1
                   :accessor history-index)
@@ -96,45 +118,23 @@
                                 (#_QStyle::State_HasFocus)))
   (stop-overriding))
 
-(defmethod initialize-instance :after ((widget repl-input) &key scene)
-  (new-instance widget "")
-  (#_setTextInteractionFlags widget (enum-or (#_Qt::TextSelectableByMouse)
-                                             (#_Qt::TextSelectableByKeyboard)
-                                             (#_Qt::TextEditable)))
-  (#_setDocumentMargin (#_document widget) 1)
-  (#_addItem scene widget)
-  (#_setFont widget *default-qfont*))
-
-(defclass result-presentation ()
+(defclass result-presentation (text-item)
   ((value :initarg :value
           :initform nil
           :accessor value))
   (:metaclass qt-class)
-  (:qt-superclass "QGraphicsTextItem")
-  (:override ("contextMenuEvent" context-menu-event)
-   ;; ("paint" graphics-item-paint)
-   )
   (:slots ("inspect()" (lambda (x)
                          (inspector (value x))))))
 
 (defmethod initialize-instance :after ((widget result-presentation)
-                                       &key text scene)
-  (new-instance widget text)
-  (#_setTextInteractionFlags widget (enum-or (#_Qt::TextSelectableByMouse)
-                                             (#_Qt::TextSelectableByKeyboard)))
-  (#_setDocumentMargin (#_document widget) 1)
-  (#_addItem scene widget)
-  (#_setFont widget *default-qfont*)
+                                       &key)
+
   (#_setDefaultTextColor widget (#_new QColor "#ff0000")))
 
-(defgeneric context-menu-event (widget event))
-
-(defmethod context-menu-event ((widget result-presentation) event)
+(defmethod context-menu ((widget result-presentation))
   (let ((menu (#_new QMenu)))
-    (add-qaction menu "Inspect"
-                 widget
-                 "inspect()")
-    (#_exec menu (#_screenPos event))))
+    (add-qaction menu "Inspect" widget "inspect()")
+    menu))
 
 ;;;
 
