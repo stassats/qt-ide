@@ -111,7 +111,8 @@
     (#_setPlainText input "")
     (#_setPlainText package-indicator
                     (format nil "~a> " (short-package-name *package*)))
-    (#_setPos input (#_rwidth (#_size (#_document package-indicator)))
+    (#_setPos input (- (#_rwidth (#_size (#_document package-indicator)))
+                       2) ;; margins
               y)
     (#_setY package-indicator y)
     (#_ensureVisible input)))
