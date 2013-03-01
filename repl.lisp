@@ -44,15 +44,15 @@
    (layout :initarg :layout
            :initform nil
            :accessor layout)
+   (item-count :initarg :item-count
+               :initform -1
+               :accessor item-count)
    (view :initarg :view
          :initform nil
          :accessor view)
    (scroll-bar :initarg :scroll-bar
                :initform nil
                :accessor scroll-bar)
-   (last-output-position :initarg :last-output-position
-                         :initform 0
-                         :accessor last-output-position)
    (output :initarg :output
                    :initform nil
                    :accessor output) 
@@ -71,10 +71,19 @@
   (let* ((scene (#_new QGraphicsScene window))
          (view (#_new QGraphicsView scene window))
          (vbox (#_new QVBoxLayout window))
-         (input (make-instance 'repl-input :scene scene))
-         (package-indicator (#_addText scene "" *default-qfont*)))
+         (input (make-instance 'repl-input))
+         (package-indicator (#_addText scene "" *default-qfont*))
+         (layout (#_new QGraphicsLinearLayout (#_Qt::Vertical)))
+         (hlayout (#_new QGraphicsLinearLayout))
+         (main-widget (#_new QGraphicsWidget)))
     (#_setAlignment view (enum-or (#_Qt::AlignLeft) (#_Qt::AlignTop)))
+    (#_setContentsMargins layout 0 0 0 0)
+    (#_setSpacing layout 0)
+    (#_setSpacing hlayout 0)
     (add-widgets vbox view)
+    (#_setLayout main-widget layout)
+    (#_addItem scene main-widget)
+    (#_addItem layout hlayout)
     (setf (input window) input
           (package-indicator window) package-indicator
           (scene window) scene
@@ -82,18 +91,46 @@
           (output-stream window)
           (make-instance 'repl-output-stream
                          :repl-window window)
-          (scroll-bar window) (#_verticalScrollBar view))
+          (scroll-bar window) (#_verticalScrollBar view)
+          (layout window) layout)
     (#_setDefaultTextColor package-indicator
                            (or *package-indicator-color*
                                (setf *package-indicator-color*
                                      (#_new QColor "#a020f0"))))
-    (#_setDocumentMargin (#_document package-indicator) 1)
+    (#_setDocumentMargin (#_document package-indicator) 0)
+    (add-text-to-layout hlayout package-indicator)
+    (add-text-to-layout hlayout input)
     (update-input window)
     (#_setFocus input)
     (connect input "returnPressed()"
              window "evaluate()")
     (connect input "history(bool)"
              window "history(bool)")))
+
+(defun add-text-to-layout (layout item &key position)
+  (let ((widget (#_new QGraphicsWidget))
+        (document (#_document item)))
+    (#_setParentItem item widget)
+    (#_setPreferredSize widget (#_size document))
+    (#_setSizePolicy widget (#_new QSizePolicy
+                                   (#_QSizePolicy::Fixed)
+                                   (#_QSizePolicy::Fixed)))
+    (if position
+        (#_insertItem layout position widget)
+        (#_addItem layout widget))
+    (connect document "contentsChanged()"
+             (lambda ()
+               (#_setPreferredSize widget (#_size document))))))
+
+(defun insert-item (repl item)
+  (with-slots (input scene scroll-bar
+               layout item-count) repl
+    (add-text-to-layout layout item
+                        :position (incf item-count))
+    (let* ((max (+ (#_maximum scroll-bar)
+                   (ceiling (#_rheight (#_size (#_document item)))))))
+      (#_setMaximum scroll-bar max)
+      (#_setValue scroll-bar max))))
 
 ;;;
 
@@ -103,13 +140,15 @@
   (:qt-superclass "QGraphicsTextItem")
   (:override ("contextMenuEvent" context-menu-event)))
 
-(defmethod initialize-instance :after ((widget text-item) &key (text "") scene)
+(defmethod initialize-instance :after ((widget text-item) &key (text "")
+                                                               editable)
   (new-instance widget text)
   (#_setTextInteractionFlags widget (enum-or (#_Qt::TextSelectableByMouse)
                                              (#_Qt::TextSelectableByKeyboard)
-                                             (#_Qt::TextEditable)))
+                                             (if editable
+                                                 (#_Qt::TextEditable)
+                                                 0)))
   (#_setDocumentMargin (#_document widget) 1)
-  (#_addItem scene widget)
   (#_setFont widget *default-qfont*))
 
 (defmethod context-menu-event ((widget text-item) event)
@@ -132,7 +171,8 @@
              ("paint" graphics-item-paint))
   (:signals
    ("returnPressed()")
-   ("history(bool)")))
+   ("history(bool)"))
+  (:default-initargs :editable t))
 
 (defmethod key-press-event ((widget repl-input) event)
   (let ((key (#_key event)))
@@ -196,26 +236,20 @@
 
 ;;;
 
-(defun update-input (window)
-  (with-slots (input last-output-position package-indicator)
-      window
+(defun update-input (repl)
+  (with-slots (input package-indicator scroll-bar)
+      repl
     (#_setPlainText input "")
     (#_setPlainText package-indicator
                     (format nil "~a> " (short-package-name *package*)))
-    (#_setPos input (- (#_rwidth (#_size (#_document package-indicator)))
-                       2) ;; margins
-              last-output-position)
-    (#_setY package-indicator last-output-position)
-    (#_ensureVisible input)))
+    (#_setValue scroll-bar (#_maximum scroll-bar))))
 
 (defun evaluate-string (repl string)
-  (with-slots (output-stream output
-               scene)
+  (with-slots (output-stream output)
       repl
     (when (or (null output)
               (used output))
-      (setf output
-            (make-instance 'repl-output :scene scene :repl repl)))
+      (setf output (make-instance 'repl-output :repl repl)))
     (let ((*standard-output* output-stream)
           (*error-output* output-stream)
           ;;(*debug-io* (make-two-way-stream *debug-io* output-stream))
@@ -231,73 +265,49 @@
             (cons stripped
                   (remove stripped *repl-history* :test #'equal))))))
 
-(defun add-text-to-repl (text window)
-  (with-slots (input scene last-output-position scroll-bar)
-      window
-    (let* ((text (#_addText scene text *default-qfont*))
-           (height (progn
-                     (#_setDocumentMargin (#_document text) 1)
-                     (#_rheight (#_size (#_document text))))))
-      (#_setTextInteractionFlags text (enum-or (#_Qt::TextSelectableByMouse)
-                                               (#_Qt::TextSelectableByKeyboard)))
-      (#_setY text last-output-position)
-      (#_setMaximum scroll-bar (+ (#_maximum scroll-bar) (ceiling height)))
-      (incf last-output-position (- height 2))
-      text)))
+(defun add-text-to-repl (text repl)
+  (insert-item repl (make-instance 'text-item :text text)))
 
-(defun add-result-to-repl (value window)
-  (with-slots (input scene last-output-position
-               scroll-bar)
-      window
-    (let* ((text (make-instance 'result-presentation
-                                :scene scene
-                                :value value
-                                :text (prin1-to-string value)))
-           (height (progn
-                     (#_setDocumentMargin (#_document text) 1)
-                     (#_rheight (#_size (#_document text))))))
-      (#_setY text last-output-position)
-      (#_setMaximum scroll-bar (+ (#_maximum scroll-bar) (ceiling height)))
-      (incf last-output-position (- height 2)))))
+(defun add-result-to-repl (value repl)
+  (insert-item repl (make-instance 'result-presentation
+                                   :value value
+                                   :text (prin1-to-string value))))
 
 (defun insert-output (repl string)
-  (with-slots (last-output-position output
-               scroll-bar) repl
+  (with-slots (output scroll-bar) repl
     (let* ((output (output repl))
            (cursor (cursor output))
            (document (#_document output)))
       (unless (used output)
-        (#_setY output last-output-position)
-        (incf last-output-position (#_rheight (#_size document)))
+        (insert-item repl output)
         (setf (used output) t))
       (let* ((old-height (#_rheight (#_size document))))
         (#_movePosition cursor (#_QTextCursor::End))
         (#_insertText cursor string)
-        (let ((new-height (- (#_rheight (#_size document))
-                             old-height)))
-          (#_setMaximum scroll-bar
-                        (+ (#_maximum scroll-bar) (ceiling new-height)))
-          (incf last-output-position new-height))))))
+        (let* ((new-height (- (#_rheight (#_size document))
+                              old-height))
+               (max (+ (#_maximum scroll-bar)
+                       (ceiling new-height))))
+          (#_setMaximum scroll-bar max)
+          (#_setValue scroll-bar max))))))
 
-(defun add-results (results window)
+(defun add-results (results repl)
   (cond ((null results)
-         (add-text-to-repl "; No values" window)) ;
+         (add-text-to-repl "; No values" repl))
         (t
          (loop for result in results
-               do (add-result-to-repl result window)))))
+               do (add-result-to-repl result repl)))))
 
-(defun evaluate (window)
-  (with-slots (input scene last-output-position view
-               package-indicator)
-      window
+(defun evaluate (repl)
+  (with-slots (input package-indicator) repl
     (let ((string-to-eval (#_toPlainText input)))
       (add-text-to-repl
        (format nil "~a> ~a"
                (short-package-name *package*)
                string-to-eval)
-       window)
-      (add-results (evaluate-string window string-to-eval) window)
-      (update-input window)
+       repl)
+      (add-results (evaluate-string repl string-to-eval) repl)
+      (update-input repl)
       (adjust-history string-to-eval)
       (setf (history-index input) -1))))
 

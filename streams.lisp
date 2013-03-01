@@ -13,21 +13,21 @@
                 :initform nil
                 :accessor repl-window)))
 
-(defun append-to-output (repl string)
-  (emit-signal (output repl)
+(defun append-to-output (stream string)
+  (emit-signal (output (repl-window stream))
                "insertOutput(QString)" string))
 
 (defmethod stream-write-char ((stream repl-output-stream) char)
-  (append-to-output (repl-window stream) (string char)))
+  (append-to-output stream (string char)))
 
 (defmethod stream-write-string
     ((stream repl-output-stream) string &optional (start 0) end)
-  (append-to-output (repl-window stream) (subseq string start end)))
+  (append-to-output stream (subseq string start end)))
 
 (defmethod stream-write-sequence
     ((stream repl-output-stream) string start end &key)
-  (append-to-output (repl-window stream) (subseq string start end)))
+  (append-to-output stream (subseq string start end)))
 
 (defmethod stream-terpri
     ((stream repl-output-stream))
-  (append-to-output (repl-window stream) #.(string #\Newline)))
+  (append-to-output stream #.(string #\Newline)))
