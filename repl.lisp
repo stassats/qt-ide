@@ -44,26 +44,27 @@
    (layout :initarg :layout
            :initform nil
            :accessor layout)
-   (last-output-position :initarg :last-output-position
-                         :initform 0
-                         :accessor last-output-position)
    (view :initarg :view
          :initform nil
          :accessor view)
-   (current-output :initarg :current-output
-                   :initform nil
-                   :accessor current-output)
-   (output-stream :initarg :output-stream
-                  :initform nil
-                  :accessor output-stream)
    (scroll-bar :initarg :scroll-bar
                :initform nil
-               :accessor scroll-bar))
+               :accessor scroll-bar)
+   (last-output-position :initarg :last-output-position
+                         :initform 0
+                         :accessor last-output-position)
+   (output :initarg :output
+                   :initform nil
+                   :accessor output) 
+   (output-stream :initarg :output-stream
+                  :initform nil
+                  :accessor output-stream))
   (:metaclass qt-class)
   (:qt-superclass "QDialog")
   (:slots
    ("evaluate()" evaluate)
-   ("history(bool)" choose-history))
+   ("history(bool)" choose-history)
+   ("insertOutput(QString)" insert-output))
   (:default-initargs :title "REPL"))
 
 (defmethod initialize-instance :after ((window repl) &key)
@@ -169,13 +170,29 @@
 
 (defmethod initialize-instance :after ((widget result-presentation)
                                        &key)
-
   (#_setDefaultTextColor widget (#_new QColor "#ff0000")))
 
 (defmethod context-menu ((widget result-presentation))
   (let ((menu (#_new QMenu)))
     (add-qaction menu "Inspect" widget "inspect()")
     menu))
+;;;
+
+(defclass repl-output (text-item)
+  ((cursor :initarg :cursor
+           :initform nil
+           :accessor cursor)
+   (used :initarg :used
+         :initform nil
+         :accessor used))
+  (:metaclass qt-class)
+  (:signals ("insertOutput(QString)")))
+
+(defmethod initialize-instance :after ((widget repl-output) &key
+                                                              repl)
+  (setf (cursor widget)
+        (#_new QTextCursor (#_document widget)))
+  (connect widget "insertOutput(QString)" repl "insertOutput(QString)"))
 
 ;;;
 
@@ -192,11 +209,16 @@
     (#_ensureVisible input)))
 
 (defun evaluate-string (repl string)
-  (with-slots (output-stream current-output) repl
-    (setf current-output nil)
+  (with-slots (output-stream output
+               scene)
+      repl
+    (when (or (null output)
+              (used output))
+      (setf output
+            (make-instance 'repl-output :scene scene :repl repl)))
     (let ((*standard-output* output-stream)
           (*error-output* output-stream)
-          ;(*debug-io* (make-two-way-stream *debug-io* output-stream))
+          ;;(*debug-io* (make-two-way-stream *debug-io* output-stream))
           (*query-io* (make-two-way-stream *query-io* output-stream)))
       (with-graphic-debugger
         (multiple-value-list
@@ -238,9 +260,28 @@
       (#_setMaximum scroll-bar (+ (#_maximum scroll-bar) (ceiling height)))
       (incf last-output-position (- height 2)))))
 
+(defun insert-output (repl string)
+  (with-slots (last-output-position output
+               scroll-bar) repl
+    (let* ((output (output repl))
+           (cursor (cursor output))
+           (document (#_document output)))
+      (unless (used output)
+        (#_setY output last-output-position)
+        (incf last-output-position (#_rheight (#_size document)))
+        (setf (used output) t))
+      (let* ((old-height (#_rheight (#_size document))))
+        (#_movePosition cursor (#_QTextCursor::End))
+        (#_insertText cursor string)
+        (let ((new-height (- (#_rheight (#_size document))
+                             old-height)))
+          (#_setMaximum scroll-bar
+                        (+ (#_maximum scroll-bar) (ceiling new-height)))
+          (incf last-output-position new-height))))))
+
 (defun add-results (results window)
   (cond ((null results)
-         (add-text-to-repl "; No values" window))
+         (add-text-to-repl "; No values" window)) ;
         (t
          (loop for result in results
                do (add-result-to-repl result window)))))
