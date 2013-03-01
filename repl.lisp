@@ -50,9 +50,6 @@
    (view :initarg :view
          :initform nil
          :accessor view)
-   (scroll-bar :initarg :scroll-bar
-               :initform nil
-               :accessor scroll-bar)
    (output :initarg :output
                    :initform nil
                    :accessor output) 
@@ -64,7 +61,8 @@
   (:slots
    ("evaluate()" evaluate)
    ("history(bool)" choose-history)
-   ("insertOutput(QString)" insert-output))
+   ("insertOutput(QString)" insert-output)
+   ("makeInputVisible(QRectF)" make-input-visible))
   (:default-initargs :title "REPL"))
 
 (defmethod initialize-instance :after ((window repl) &key)
@@ -77,6 +75,7 @@
          (hlayout (#_new QGraphicsLinearLayout))
          (main-widget (#_new QGraphicsWidget)))
     (#_setAlignment view (enum-or (#_Qt::AlignLeft) (#_Qt::AlignTop)))
+    (#_setItemIndexMethod scene (#_QGraphicsScene::NoIndex))
     (#_setContentsMargins layout 0 0 0 0)
     (#_setSpacing layout 0)
     (#_setSpacing hlayout 0)
@@ -91,7 +90,6 @@
           (output-stream window)
           (make-instance 'repl-output-stream
                          :repl-window window)
-          (scroll-bar window) (#_verticalScrollBar view)
           (layout window) layout)
     (#_setDefaultTextColor package-indicator
                            (or *package-indicator-color*
@@ -105,7 +103,9 @@
     (connect input "returnPressed()"
              window "evaluate()")
     (connect input "history(bool)"
-             window "history(bool)")))
+             window "history(bool)")
+    (connect scene "sceneRectChanged(QRectF)"
+             window "makeInputVisible(QRectF)")))
 
 (defun add-text-to-layout (layout item &key position)
   (let ((widget (#_new QGraphicsWidget))
@@ -123,14 +123,9 @@
                (#_setPreferredSize widget (#_size document))))))
 
 (defun insert-item (repl item)
-  (with-slots (input scene scroll-bar
-               layout item-count) repl
+  (with-slots (input scene layout item-count) repl
     (add-text-to-layout layout item
-                        :position (incf item-count))
-    (let* ((max (+ (#_maximum scroll-bar)
-                   (ceiling (#_rheight (#_size (#_document item)))))))
-      (#_setMaximum scroll-bar max)
-      (#_setValue scroll-bar max))))
+                        :position (incf item-count))))
 
 ;;;
 
@@ -237,12 +232,14 @@
 ;;;
 
 (defun update-input (repl)
-  (with-slots (input package-indicator scroll-bar)
-      repl
+  (with-slots (input package-indicator) repl
     (#_setPlainText input "")
     (#_setPlainText package-indicator
-                    (format nil "~a> " (short-package-name *package*)))
-    (#_setValue scroll-bar (#_maximum scroll-bar))))
+                    (format nil "~a> " (short-package-name *package*)))))
+
+(defun make-input-visible (repl rect)
+  (declare (ignore rect))
+  (#_ensureVisible (input repl)))
 
 (defun evaluate-string (repl string)
   (with-slots (output-stream output)
@@ -274,22 +271,14 @@
                                    :text (prin1-to-string value))))
 
 (defun insert-output (repl string)
-  (with-slots (output scroll-bar) repl
+  (with-slots (output) repl
     (let* ((output (output repl))
-           (cursor (cursor output))
-           (document (#_document output)))
+           (cursor (cursor output)))
       (unless (used output)
         (insert-item repl output)
         (setf (used output) t))
-      (let* ((old-height (#_rheight (#_size document))))
-        (#_movePosition cursor (#_QTextCursor::End))
-        (#_insertText cursor string)
-        (let* ((new-height (- (#_rheight (#_size document))
-                              old-height))
-               (max (+ (#_maximum scroll-bar)
-                       (ceiling new-height))))
-          (#_setMaximum scroll-bar max)
-          (#_setValue scroll-bar max))))))
+      (#_movePosition cursor (#_QTextCursor::End))
+      (#_insertText cursor string))))
 
 (defun add-results (results repl)
   (cond ((null results)
