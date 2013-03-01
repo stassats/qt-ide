@@ -49,13 +49,52 @@
                          :accessor last-output-position)
    (view :initarg :view
          :initform nil
-         :accessor view))
+         :accessor view)
+   (current-output :initarg :current-output
+                   :initform nil
+                   :accessor current-output)
+   (output-stream :initarg :output-stream
+                  :initform nil
+                  :accessor output-stream)
+   (scroll-bar :initarg :scroll-bar
+               :initform nil
+               :accessor scroll-bar))
   (:metaclass qt-class)
   (:qt-superclass "QDialog")
   (:slots
    ("evaluate()" evaluate)
    ("history(bool)" choose-history))
   (:default-initargs :title "REPL"))
+
+(defmethod initialize-instance :after ((window repl) &key)
+  (let* ((scene (#_new QGraphicsScene window))
+         (view (#_new QGraphicsView scene window))
+         (vbox (#_new QVBoxLayout window))
+         (input (make-instance 'repl-input :scene scene))
+         (package-indicator (#_addText scene "" *default-qfont*)))
+    (#_setAlignment view (enum-or (#_Qt::AlignLeft) (#_Qt::AlignTop)))
+    (add-widgets vbox view)
+    (setf (input window) input
+          (package-indicator window) package-indicator
+          (scene window) scene
+          (view window) view
+          (output-stream window)
+          (make-instance 'repl-output-stream
+                         :repl-window window)
+          (scroll-bar window) (#_verticalScrollBar view))
+    (#_setDefaultTextColor package-indicator
+                           (or *package-indicator-color*
+                               (setf *package-indicator-color*
+                                     (#_new QColor "#a020f0"))))
+    (#_setDocumentMargin (#_document package-indicator) 1)
+    (update-input window)
+    (#_setFocus input)
+    (connect input "returnPressed()"
+             window "evaluate()")
+    (connect input "history(bool)"
+             window "history(bool)")))
+
+;;;
 
 (defclass text-item ()
   ()
@@ -118,6 +157,8 @@
                                 (#_QStyle::State_HasFocus)))
   (stop-overriding))
 
+;;;
+
 (defclass result-presentation (text-item)
   ((value :initarg :value
           :initform nil
@@ -150,42 +191,16 @@
     (#_setY package-indicator last-output-position)
     (#_ensureVisible input)))
 
-(defmethod initialize-instance :after ((window repl) &key)
-  (let* ((scene (#_new QGraphicsScene window))
-         (view (#_new QGraphicsView scene window))
-         (vbox (#_new QVBoxLayout window))
-         (input (make-instance 'repl-input :scene scene))
-         (package-indicator (#_addText scene "" *default-qfont*)))
-    (#_setAlignment view (enum-or (#_Qt::AlignLeft) (#_Qt::AlignTop)))
-    (add-widgets vbox view)
-    (setf (input window) input
-          (package-indicator window) package-indicator
-          (scene window) scene
-          (view window) view)
-    (#_setDefaultTextColor package-indicator
-                           (or *package-indicator-color*
-                               (setf *package-indicator-color*
-                                     (#_new QColor "#a020f0"))))
-    (#_setDocumentMargin (#_document package-indicator) 1)
-    (update-input window)
-    (#_setFocus input)
-    (connect input "returnPressed()"
-             window "evaluate()")
-    (connect input "history(bool)"
-             window "history(bool)")))
-
-(defun evaluate-string (string)
-  (let* (results
-         (output
-           (with-output-to-string (stream)
-             (let ((*standard-output* stream)
-                   (*error-output* stream)
-                   (*debug-io* (make-two-way-stream *debug-io* stream))
-                   (*query-io* (make-two-way-stream *query-io* stream)))
-               (with-graphic-debugger
-                 (setf results (multiple-value-list
-                                (eval (read-from-string string)))))))))
-    (values results output)))
+(defun evaluate-string (repl string)
+  (with-slots (output-stream current-output) repl
+    (setf current-output nil)
+    (let ((*standard-output* output-stream)
+          (*error-output* output-stream)
+          ;(*debug-io* (make-two-way-stream *debug-io* output-stream))
+          (*query-io* (make-two-way-stream *query-io* output-stream)))
+      (with-graphic-debugger
+        (multiple-value-list
+         (eval (read-from-string string)))))))
 
 (defun adjust-history (new-input)
   (unless (equal new-input (car *repl-history*))
@@ -195,21 +210,22 @@
                   (remove stripped *repl-history* :test #'equal))))))
 
 (defun add-text-to-repl (text window)
-  (with-slots (input scene last-output-position view)
+  (with-slots (input scene last-output-position scroll-bar)
       window
     (let* ((text (#_addText scene text *default-qfont*))
            (height (progn
                      (#_setDocumentMargin (#_document text) 1)
-                     (#_rheight (#_size (#_document text)))))
-           (scroll-bar (#_verticalScrollBar view)))
+                     (#_rheight (#_size (#_document text))))))
       (#_setTextInteractionFlags text (enum-or (#_Qt::TextSelectableByMouse)
                                                (#_Qt::TextSelectableByKeyboard)))
       (#_setY text last-output-position)
       (#_setMaximum scroll-bar (+ (#_maximum scroll-bar) (ceiling height)))
-      (incf last-output-position height))))
+      (incf last-output-position (- height 2))
+      text)))
 
 (defun add-result-to-repl (value window)
-  (with-slots (input scene last-output-position view)
+  (with-slots (input scene last-output-position
+               scroll-bar)
       window
     (let* ((text (make-instance 'result-presentation
                                 :scene scene
@@ -217,15 +233,14 @@
                                 :text (prin1-to-string value)))
            (height (progn
                      (#_setDocumentMargin (#_document text) 1)
-                     (#_rheight (#_size (#_document text)))))
-           (scroll-bar (#_verticalScrollBar view)))
+                     (#_rheight (#_size (#_document text))))))
       (#_setY text last-output-position)
       (#_setMaximum scroll-bar (+ (#_maximum scroll-bar) (ceiling height)))
-      (incf last-output-position height))))
+      (incf last-output-position (- height 2)))))
 
 (defun add-results (results window)
   (cond ((null results)
-         (add-text-to-repl "; No values" window)) ;
+         (add-text-to-repl "; No values" window))
         (t
          (loop for result in results
                do (add-result-to-repl result window)))))
@@ -235,20 +250,15 @@
                package-indicator)
       window
     (let ((string-to-eval (#_toPlainText input)))
-      (multiple-value-bind (values output)
-          (evaluate-string string-to-eval)
-        (add-text-to-repl
-         (format nil "~a> ~a~@[~%~a~]"
-                 (short-package-name *package*)
-                 string-to-eval
-                 (if (equal output "")
-                     nil
-                     output))
-         window)
-        (add-results values window)
-        (update-input window)
-        (adjust-history string-to-eval)
-        (setf (history-index input) -1)))))
+      (add-text-to-repl
+       (format nil "~a> ~a"
+               (short-package-name *package*)
+               string-to-eval)
+       window)
+      (add-results (evaluate-string window string-to-eval) window)
+      (update-input window)
+      (adjust-history string-to-eval)
+      (setf (history-index input) -1))))
 
 (defun choose-history (window previous-p)
   (with-slots (input scene last-output-position view) window
