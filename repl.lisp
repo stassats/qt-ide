@@ -45,14 +45,14 @@
            :initform nil
            :accessor layout)
    (item-count :initarg :item-count
-               :initform -1
+               :initform 0
                :accessor item-count)
    (view :initarg :view
          :initform nil
          :accessor view)
    (output :initarg :output
                    :initform nil
-                   :accessor output) 
+                   :accessor output)
    (output-stream :initarg :output-stream
                   :initform nil
                   :accessor output-stream))
@@ -122,10 +122,12 @@
              (lambda ()
                (#_setPreferredSize widget (#_size document))))))
 
-(defun insert-item (repl item)
+(defun insert-item (repl item &key position)
   (with-slots (input scene layout item-count) repl
     (add-text-to-layout layout item
-                        :position (incf item-count))))
+                        :position (or position
+                                      item-count))
+    (incf item-count)))
 
 ;;;
 
@@ -219,12 +221,14 @@
            :accessor cursor)
    (used :initarg :used
          :initform nil
-         :accessor used))
+         :accessor used)
+   (place :initarg :place
+          :initform nil
+          :accessor place))
   (:metaclass qt-class)
   (:signals ("insertOutput(QString)")))
 
-(defmethod initialize-instance :after ((widget repl-output) &key
-                                                              repl)
+(defmethod initialize-instance :after ((widget repl-output) &key repl)
   (setf (cursor widget)
         (#_new QTextCursor (#_document widget)))
   (connect widget "insertOutput(QString)" repl "insertOutput(QString)"))
@@ -238,8 +242,7 @@
                     (format nil "~a> " (short-package-name *package*)))))
 
 (defun make-input-visible (repl rect)
-  (declare (ignore rect))
-  (#_ensureVisible (input repl)))
+  (#_centerOn (view repl) (#_bottomLeft rect)))
 
 (defun evaluate-string (repl string)
   (with-slots (output-stream output)
@@ -247,6 +250,7 @@
     (when (or (null output)
               (used output))
       (setf output (make-instance 'repl-output :repl repl)))
+    (setf (place output) (item-count repl))
     (let ((*standard-output* output-stream)
           (*error-output* output-stream)
           ;;(*debug-io* (make-two-way-stream *debug-io* output-stream))
@@ -275,7 +279,7 @@
     (let* ((output (output repl))
            (cursor (cursor output)))
       (unless (used output)
-        (insert-item repl output)
+        (insert-item repl output :position (place output))
         (setf (used output) t))
       (#_movePosition cursor (#_QTextCursor::End))
       (#_insertText cursor string))))
