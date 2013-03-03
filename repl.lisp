@@ -8,9 +8,11 @@
 
 (defvar *repl-history* nil)
 (defvar *package-indicator-color* nil)
+(defvar *repl-kernel* (lparallel:make-kernel 1 :name "qt-repl"))
 
 (defun repl ()
-  (let ((*package* *package*)
+  (let ((lparallel:*kernel* *repl-kernel*)
+        (*package* *package*)
         (* *)
         (** **)
         (*** ***)
@@ -32,29 +34,28 @@
     name))
 
 (defclass repl (window)
-  ((input :initarg :input
-          :initform nil
+  ((eval-channel :initform nil
+                 :accessor eval-channel)
+   (result-queue :initform nil
+                 :accessor result-queue)
+   (input :initform nil
           :accessor input)
-   (package-indicator :initarg :package-indicator
-                      :initform nil
+   (current-package :initarg :current-package
+                    :initform nil
+                    :accessor current-package) 
+   (package-indicator :initform nil
                       :accessor package-indicator)
-   (scene :initarg :scene
-          :initform nil
+   (scene :initform nil
           :accessor scene)
-   (layout :initarg :layout
-           :initform nil
+   (layout :initform nil
            :accessor layout)
-   (item-count :initarg :item-count
-               :initform 0
+   (item-count :initform 0
                :accessor item-count)
-   (view :initarg :view
-         :initform nil
+   (view :initform nil
          :accessor view)
-   (output :initarg :output
-                   :initform nil
-                   :accessor output)
-   (output-stream :initarg :output-stream
-                  :initform nil
+   (output :initform nil
+           :accessor output)
+   (output-stream :initform nil
                   :accessor output-stream))
   (:metaclass qt-class)
   (:qt-superclass "QDialog")
@@ -62,7 +63,9 @@
    ("evaluate()" evaluate)
    ("history(bool)" choose-history)
    ("insertOutput(QString)" insert-output)
+   ("insertResults()" insert-results)
    ("makeInputVisible(QRectF)" make-input-visible))
+  (:signals ("insertResults()"))
   (:default-initargs :title "REPL"))
 
 (defmethod initialize-instance :after ((window repl) &key)
@@ -83,7 +86,13 @@
     (#_setLayout main-widget layout)
     (#_addItem scene main-widget)
     (#_addItem layout hlayout)
-    (setf (input window) input
+    (setf (eval-channel window) (lparallel:make-channel)
+          (result-queue window) (lparallel.queue:make-queue)
+          (current-package window)
+          (progn (lparallel:submit-task (eval-channel window)
+                                        (lambda () *package*))
+                 (lparallel:receive-result (eval-channel window)))
+          (input window) input
           (package-indicator window) package-indicator
           (scene window) scene
           (view window) view
@@ -105,7 +114,8 @@
     (connect input "history(bool)"
              window "history(bool)")
     (connect scene "sceneRectChanged(QRectF)"
-             window "makeInputVisible(QRectF)")))
+             window "makeInputVisible(QRectF)")
+    (connect window "insertResults()" window "insertResults()")))
 
 (defun add-text-to-layout (layout item &key position)
   (let ((widget (#_new QGraphicsWidget))
@@ -145,6 +155,8 @@
                                              (if editable
                                                  (#_Qt::TextEditable)
                                                  0)))
+  (unless editable
+    (#_setUndoRedoEnabled (#_document widget) nil))
   (#_setDocumentMargin (#_document widget) 1)
   (#_setFont widget *default-qfont*))
 
@@ -239,25 +251,24 @@
   (with-slots (input package-indicator) repl
     (#_setPlainText input "")
     (#_setPlainText package-indicator
-                    (format nil "~a> " (short-package-name *package*)))))
+                    (format nil "~a> "
+                            (short-package-name (current-package repl))))
+    (#_setVisible input t)
+    (#_setVisible package-indicator t)
+    (#_setFocus input)))
 
 (defun make-input-visible (repl rect)
   (#_centerOn (view repl) (#_bottomLeft rect)))
 
 (defun evaluate-string (repl string)
-  (with-slots (output-stream output)
-      repl
-    (when (or (null output)
-              (used output))
-      (setf output (make-instance 'repl-output :repl repl)))
-    (setf (place output) (item-count repl))
-    (let ((*standard-output* output-stream)
-          (*error-output* output-stream)
-          ;;(*debug-io* (make-two-way-stream *debug-io* output-stream))
-          (*query-io* (make-two-way-stream *query-io* output-stream)))
-      (with-graphic-debugger
-        (multiple-value-list
-         (eval (read-from-string string)))))))
+  (let* ((output-stream (output-stream repl))
+         (*standard-output* output-stream)
+         (*error-output* output-stream)
+         ;;(*debug-io* (make-two-way-stream *debug-io* output-stream))
+         (*query-io* (make-two-way-stream *query-io* output-stream)))
+    (progn ;; with-graphic-debugger
+      (multiple-value-list
+       (eval (read-from-string string))))))
 
 (defun adjust-history (new-input)
   (unless (equal new-input (car *repl-history*))
@@ -284,25 +295,40 @@
       (#_movePosition cursor (#_QTextCursor::End))
       (#_insertText cursor string))))
 
-(defun add-results (results repl)
-  (cond ((null results)
-         (add-text-to-repl "; No values" repl))
-        (t
-         (loop for result in results
-               do (add-result-to-repl result repl)))))
+(defun insert-results (repl)
+  (let ((results (lparallel.queue:pop-queue (result-queue repl))))
+    (cond ((null results)
+           (add-text-to-repl "; No values" repl))
+          (t
+           (loop for result in results
+                 do (add-result-to-repl result repl))))
+    (update-input repl)))
+
+(defun perform-evaluation (string repl)
+  (lparallel.queue:push-queue (evaluate-string repl string)
+                              (result-queue repl))
+  (setf (current-package repl) *package*)
+  (emit-signal repl "insertResults()"))
 
 (defun evaluate (repl)
-  (with-slots (input package-indicator) repl
+  (with-slots (input package-indicator item-count
+               output-stream output
+               eval-channel current-package) repl
     (let ((string-to-eval (#_toPlainText input)))
       (add-text-to-repl
        (format nil "~a> ~a"
-               (short-package-name *package*)
-               string-to-eval)
+               (short-package-name current-package) string-to-eval)
        repl)
-      (add-results (evaluate-string repl string-to-eval) repl)
-      (update-input repl)
+      (when (or (null output)
+                (used output))
+        (setf output (make-instance 'repl-output :repl repl)))
+      (setf (place output) item-count)
       (adjust-history string-to-eval)
-      (setf (history-index input) -1))))
+      (setf (history-index input) -1)
+      (#_setVisible input nil)
+      (#_setVisible package-indicator nil)
+      (lparallel:submit-task eval-channel
+                             #'perform-evaluation string-to-eval repl))))
 
 (defun choose-history (window previous-p)
   (with-slots (input scene last-output-position view) window

@@ -4,7 +4,8 @@
   :serial t
   :depends-on (qt qt-ui
                   alexandria
-                  trivial-gray-streams)
+                  trivial-gray-streams
+                  lparallel)
   :components ((:file "packages")
                (:file "share")
                (:file "qt-ide")
