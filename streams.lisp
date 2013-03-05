@@ -16,10 +16,7 @@
                  :accessor output-queue)))
 
 (defun append-to-output (stream string)
-  (lparallel.queue:push-queue string (output-queue stream))
-  (let ((timer (timer (repl-window stream))))
-   (unless (#_isActive timer)
-     (#_start timer 30))))
+  (lparallel.queue:push-queue string (output-queue stream)))
 
 (defmethod stream-write-char ((stream repl-output-stream) char)
   (append-to-output stream (string char)))

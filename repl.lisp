@@ -110,7 +110,8 @@
     (connect scene "sceneRectChanged(QRectF)"
              window "makeInputVisible(QRectF)")
     (connect window "insertResults()" window "insertResults()")
-    (connect timer "timeout()" window "insertOutput()")))
+    (connect timer "timeout()" window "insertOutput()")
+    (#_start timer 30)))
 
 (defun adjust-items-after-output (repl amount)
   (with-slots (package-indicator input
@@ -286,7 +287,7 @@
           do (write-string (lparallel.queue:pop-queue queue) str))))
 
 (defun insert-output (repl)
-  (with-slots (output output-stream timer) repl
+  (with-slots (output output-stream) repl
     (unless (lparallel.queue:queue-empty-p (output-queue output-stream))
       (let* ((output (output repl))
              (cursor (cursor output))
