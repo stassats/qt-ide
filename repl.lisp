@@ -57,7 +57,9 @@
    (output :initform nil
            :accessor output)
    (output-stream :initform nil
-                  :accessor output-stream))
+                  :accessor output-stream)
+   (timer :initform nil
+          :accessor timer))
   (:metaclass qt-class)
   (:qt-superclass "QDialog")
   (:slots
@@ -68,17 +70,19 @@
    ("makeInputVisible(QRectF)" make-input-visible))
   (:signals ("insertResults()"))
   (:default-initargs :title "REPL"))
-
+  
 (defmethod initialize-instance :after ((window repl) &key)
   (let* ((scene (#_new QGraphicsScene window))
          (vbox (#_new QVBoxLayout window))
          (view (#_new QGraphicsView scene window))
          (input (make-instance 'repl-input))
-         (package-indicator (#_addText scene "" *default-qfont*)))
+         (package-indicator (#_addText scene "" *default-qfont*))
+         (timer (#_new QTimer window)))
     (add-widgets vbox view)
     (#_setAlignment view (enum-or (#_Qt::AlignLeft) (#_Qt::AlignTop)))
     (#_setItemIndexMethod scene (#_QGraphicsScene::NoIndex))
-    (setf (eval-channel window) (lparallel:make-channel)
+    (setf (timer window) timer
+          (eval-channel window) (lparallel:make-channel)
           (result-queue window) (lparallel.queue:make-queue)
           (current-package window)
           (progn (lparallel:submit-task (eval-channel window)
@@ -105,7 +109,8 @@
              window "history(bool)")
     (connect scene "sceneRectChanged(QRectF)"
              window "makeInputVisible(QRectF)")
-    (connect window "insertResults()" window "insertResults()")))
+    (connect window "insertResults()" window "insertResults()")
+    (connect timer "timeout()" window "insertOutput()")))
 
 (defun adjust-items-after-output (repl amount)
   (with-slots (package-indicator input
@@ -213,6 +218,7 @@
   (let ((menu (#_new QMenu)))
     (add-qaction menu "Inspect" widget "inspect()")
     menu))
+
 ;;;
 
 (defclass repl-output (text-item)
@@ -225,13 +231,11 @@
    (place :initarg :place
           :initform nil
           :accessor place))
-  (:metaclass qt-class)
-  (:signals ("insertOutput()")))
+  (:metaclass qt-class))
 
-(defmethod initialize-instance :after ((widget repl-output) &key repl)
+(defmethod initialize-instance :after ((widget repl-output) &key)
   (setf (cursor widget)
-        (#_new QTextCursor (#_document widget)))
-  (connect widget "insertOutput()" repl "insertOutput()"))
+        (#_new QTextCursor (#_document widget))))
 
 ;;;
 
@@ -276,23 +280,30 @@
                                         :value value
                                         :text (prin1-to-string value))))
 
+(defun concatenate-output-queue (queue)
+  (with-output-to-string (str)
+    (loop until (lparallel.queue:queue-empty-p queue)
+          do (write-string (lparallel.queue:pop-queue queue) str))))
+
 (defun insert-output (repl)
-  (with-slots (output output-stream) repl
-    (let* ((output (output repl))
-           (cursor (cursor output))
-           (string (lparallel.queue:pop-queue (output-queue output-stream)))
-           (height (#_height (#_size (#_document output)))))
-      (#_movePosition cursor (#_QTextCursor::End))
-      (#_insertText cursor string)
-      (cond ((used output)
-             (adjust-items-after-output repl
-                                        (- (#_height (#_size (#_document output)))
-                                           height)))
-            (t
-             (add-text-to-repl repl output :position (place output))
-             (setf (used output) t))))))
+  (with-slots (output output-stream timer) repl
+    (unless (lparallel.queue:queue-empty-p (output-queue output-stream))
+      (let* ((output (output repl))
+             (cursor (cursor output))
+             (string (concatenate-output-queue (output-queue output-stream)))
+             (height (#_height (#_size (#_document output)))))
+        (#_movePosition cursor (#_QTextCursor::End))
+        (#_insertText cursor string)
+        (cond ((used output)
+               (adjust-items-after-output repl
+                                          (- (#_height (#_size (#_document output)))
+                                             height)))
+              (t
+               (add-text-to-repl repl output :position (place output))
+               (setf (used output) t)))))))
 
 (defun insert-results (repl)
+  (insert-output repl)
   (let ((results (lparallel.queue:pop-queue (result-queue repl))))
     (cond ((null results)
            (push (add-string-to-repl "; No values" repl)
@@ -325,7 +336,7 @@
        repl)
       (when (or (null output)
                 (used output))
-        (setf output (make-instance 'repl-output :repl repl)))
+        (setf output (make-instance 'repl-output)))
       (setf (place output) item-position)
       (adjust-history string-to-eval)
       (setf (history-index input) -1)
