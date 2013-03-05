@@ -47,10 +47,11 @@
                       :accessor package-indicator)
    (scene :initform nil
           :accessor scene)
-   (layout :initform nil
-           :accessor layout)
-   (item-count :initform 0
-               :accessor item-count)
+   (things-to-move :initarg :things-to-move
+                   :initform nil
+                   :accessor things-to-move) 
+   (item-position :initform 0
+                  :accessor item-position)
    (view :initform nil
          :accessor view)
    (output :initform nil
@@ -70,22 +71,13 @@
 
 (defmethod initialize-instance :after ((window repl) &key)
   (let* ((scene (#_new QGraphicsScene window))
-         (view (#_new QGraphicsView scene window))
          (vbox (#_new QVBoxLayout window))
+         (view (#_new QGraphicsView scene window))
          (input (make-instance 'repl-input))
-         (package-indicator (#_addText scene "" *default-qfont*))
-         (layout (#_new QGraphicsLinearLayout (#_Qt::Vertical)))
-         (hlayout (#_new QGraphicsLinearLayout))
-         (main-widget (#_new QGraphicsWidget)))
+         (package-indicator (#_addText scene "" *default-qfont*)))
+    (add-widgets vbox view)
     (#_setAlignment view (enum-or (#_Qt::AlignLeft) (#_Qt::AlignTop)))
     (#_setItemIndexMethod scene (#_QGraphicsScene::NoIndex))
-    (#_setContentsMargins layout 0 0 0 0)
-    (#_setSpacing layout 0)
-    (#_setSpacing hlayout 0)
-    (add-widgets vbox view)
-    (#_setLayout main-widget layout)
-    (#_addItem scene main-widget)
-    (#_addItem layout hlayout)
     (setf (eval-channel window) (lparallel:make-channel)
           (result-queue window) (lparallel.queue:make-queue)
           (current-package window)
@@ -98,16 +90,14 @@
           (view window) view
           (output-stream window)
           (make-instance 'repl-output-stream
-                         :repl-window window)
-          (layout window) layout)
+                         :repl-window window))
     (#_setDefaultTextColor package-indicator
                            (or *package-indicator-color*
                                (setf *package-indicator-color*
                                      (#_new QColor "#a020f0"))))
-    (#_setDocumentMargin (#_document package-indicator) 0)
-    (add-text-to-layout hlayout package-indicator)
-    (add-text-to-layout hlayout input)
+    (#_setDocumentMargin (#_document package-indicator) 1)
     (update-input window)
+    (#_addItem scene input)
     (#_setFocus input)
     (connect input "returnPressed()"
              window "evaluate()")
@@ -117,27 +107,25 @@
              window "makeInputVisible(QRectF)")
     (connect window "insertResults()" window "insertResults()")))
 
-(defun add-text-to-layout (layout item &key position)
-  (let ((widget (#_new QGraphicsWidget))
-        (document (#_document item)))
-    (#_setParentItem item widget)
-    (#_setPreferredSize widget (#_size document))
-    (#_setSizePolicy widget (#_new QSizePolicy
-                                   (#_QSizePolicy::Fixed)
-                                   (#_QSizePolicy::Fixed)))
-    (if position
-        (#_insertItem layout position widget)
-        (#_addItem layout widget))
-    (connect document "contentsChanged()"
-             (lambda ()
-               (#_setPreferredSize widget (#_size document))))))
+(defun adjust-items-after-output (repl amount)
+  (with-slots (package-indicator input
+               item-position things-to-move) repl
+    (loop for thing in things-to-move
+          do
+          (#_moveBy thing 0 amount))
+    (#_moveBy input 0 amount)
+    (#_moveBy package-indicator 0 amount)
+    (incf item-position amount)))
 
-(defun insert-item (repl item &key position)
-  (with-slots (input scene layout item-count) repl
-    (add-text-to-layout layout item
-                        :position (or position
-                                      item-count))
-    (incf item-count)))
+(defun add-text-to-repl (repl item &key position)
+  (with-slots (scene item-position) repl
+    (let* ((document (#_document item))
+           (height (#_height (#_size document))))
+      (#_addItem scene item)
+      (#_setY item (or position
+                       item-position))
+      (adjust-items-after-output repl height)))
+  item)
 
 ;;;
 
@@ -253,6 +241,8 @@
     (#_setPlainText package-indicator
                     (format nil "~a> "
                             (short-package-name (current-package repl))))
+    (#_setX input (- (#_width (#_size (#_document package-indicator)))
+                     2)) ;; margins
     (#_setVisible input t)
     (#_setVisible package-indicator t)
     (#_setFocus input)))
@@ -272,37 +262,46 @@
 
 (defun adjust-history (new-input)
   (unless (equal new-input (car *repl-history*))
-    (let ((stripped (string-trim #(#\Space #\Newline #\Tab #\Return) new-input)))
+    (let ((stripped (string-trim #(#\Space #\Newline #\Tab #\Return)
+                                 new-input)))
       (setf *repl-history*
             (cons stripped
                   (remove stripped *repl-history* :test #'equal))))))
 
-(defun add-text-to-repl (text repl)
-  (insert-item repl (make-instance 'text-item :text text)))
+(defun add-string-to-repl (text repl)
+  (add-text-to-repl repl (make-instance 'text-item :text text)))
 
 (defun add-result-to-repl (value repl)
-  (insert-item repl (make-instance 'result-presentation
-                                   :value value
-                                   :text (prin1-to-string value))))
+  (add-text-to-repl repl (make-instance 'result-presentation
+                                        :value value
+                                        :text (prin1-to-string value))))
 
 (defun insert-output (repl)
   (with-slots (output output-stream) repl
     (let* ((output (output repl))
            (cursor (cursor output))
-           (string (lparallel.queue:pop-queue (output-queue output-stream))))
-      (unless (used output)
-        (insert-item repl output :position (place output))
-        (setf (used output) t))
+           (string (lparallel.queue:pop-queue (output-queue output-stream)))
+           (height (#_height (#_size (#_document output)))))
       (#_movePosition cursor (#_QTextCursor::End))
-      (#_insertText cursor string))))
+      (#_insertText cursor string)
+      (cond ((used output)
+             (adjust-items-after-output repl
+                                        (- (#_height (#_size (#_document output)))
+                                           height)))
+            (t
+             (add-text-to-repl repl output :position (place output))
+             (setf (used output) t))))))
 
 (defun insert-results (repl)
   (let ((results (lparallel.queue:pop-queue (result-queue repl))))
     (cond ((null results)
-           (add-text-to-repl "; No values" repl))
+           (push (add-string-to-repl "; No values" repl)
+                 (things-to-move repl)))
           (t
            (loop for result in results
-                 do (add-result-to-repl result repl))))
+                 do
+                 (push (add-result-to-repl result repl)
+                       (things-to-move repl)))))
     (update-input repl)))
 
 (defun perform-evaluation (string repl)
@@ -312,20 +311,22 @@
   (emit-signal repl "insertResults()"))
 
 (defun evaluate (repl)
-  (with-slots (input package-indicator item-count
+  (with-slots (input package-indicator item-position
                output-stream output
-               eval-channel current-package) repl
+               eval-channel current-package
+               things-to-move) repl
     (let ((string-to-eval (#_toPlainText input)))
       (#_setVisible input nil)
       (#_setVisible package-indicator nil)
-      (add-text-to-repl
+      (setf things-to-move nil)
+      (add-string-to-repl
        (format nil "~a> ~a"
                (short-package-name current-package) string-to-eval)
        repl)
       (when (or (null output)
                 (used output))
         (setf output (make-instance 'repl-output :repl repl)))
-      (setf (place output) item-count)
+      (setf (place output) item-position)
       (adjust-history string-to-eval)
       (setf (history-index input) -1)
       (lparallel:submit-task eval-channel
