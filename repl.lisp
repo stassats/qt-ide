@@ -62,7 +62,7 @@
   (:slots
    ("evaluate()" evaluate)
    ("history(bool)" choose-history)
-   ("insertOutput(QString)" insert-output)
+   ("insertOutput()" insert-output)
    ("insertResults()" insert-results)
    ("makeInputVisible(QRectF)" make-input-visible))
   (:signals ("insertResults()"))
@@ -238,12 +238,12 @@
           :initform nil
           :accessor place))
   (:metaclass qt-class)
-  (:signals ("insertOutput(QString)")))
+  (:signals ("insertOutput()")))
 
 (defmethod initialize-instance :after ((widget repl-output) &key repl)
   (setf (cursor widget)
         (#_new QTextCursor (#_document widget)))
-  (connect widget "insertOutput(QString)" repl "insertOutput(QString)"))
+  (connect widget "insertOutput()" repl "insertOutput()"))
 
 ;;;
 
@@ -285,10 +285,11 @@
                                    :value value
                                    :text (prin1-to-string value))))
 
-(defun insert-output (repl string)
-  (with-slots (output) repl
+(defun insert-output (repl)
+  (with-slots (output output-stream) repl
     (let* ((output (output repl))
-           (cursor (cursor output)))
+           (cursor (cursor output))
+           (string (lparallel.queue:pop-queue (output-queue output-stream))))
       (unless (used output)
         (insert-item repl output :position (place output))
         (setf (used output) t))
@@ -315,6 +316,8 @@
                output-stream output
                eval-channel current-package) repl
     (let ((string-to-eval (#_toPlainText input)))
+      (#_setVisible input nil)
+      (#_setVisible package-indicator nil)
       (add-text-to-repl
        (format nil "~a> ~a"
                (short-package-name current-package) string-to-eval)
@@ -325,8 +328,6 @@
       (setf (place output) item-count)
       (adjust-history string-to-eval)
       (setf (history-index input) -1)
-      (#_setVisible input nil)
-      (#_setVisible package-indicator nil)
       (lparallel:submit-task eval-channel
                              #'perform-evaluation string-to-eval repl))))
 
@@ -343,7 +344,7 @@
                         (1- (length *repl-history*)))))
       (when (= current-index -1)
         (setf (current-input input) text))
-      (setf (history-index input) next-index )
+      (setf (history-index input) next-index)
       (#_setPlainText input (if (= next-index -1)
                                 (current-input input)
                                 (nth next-index *repl-history*)))

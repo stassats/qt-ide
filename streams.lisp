@@ -11,11 +11,14 @@
      trivial-gray-stream-mixin)
   ((repl-window :initarg :repl-window
                 :initform nil
-                :accessor repl-window)))
+                :accessor repl-window)
+   (output-queue :initform (lparallel.queue:make-queue)
+                 :accessor output-queue)))
 
 (defun append-to-output (stream string)
+  (lparallel.queue:push-queue string (output-queue stream))
   (emit-signal (output (repl-window stream))
-               "insertOutput(QString)" string))
+               "insertOutput()"))
 
 (defmethod stream-write-char ((stream repl-output-stream) char)
   (append-to-output stream (string char)))
