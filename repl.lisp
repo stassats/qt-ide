@@ -113,12 +113,13 @@
     (connect timer "timeout()" window "insertOutput()")
     (#_start timer 30)))
 
-(defun adjust-items-after-output (repl amount)
+(defun adjust-items-after-output (repl amount move)
   (with-slots (package-indicator input
                item-position things-to-move) repl
-    (loop for thing in things-to-move
-          do
-          (#_moveBy thing 0 amount))
+    (when move
+     (loop for thing in things-to-move
+           do
+           (#_moveBy thing 0 amount)))
     (#_moveBy input 0 amount)
     (#_moveBy package-indicator 0 amount)
     (incf item-position amount)))
@@ -130,7 +131,8 @@
       (#_addItem scene item)
       (#_setY item (or position
                        item-position))
-      (adjust-items-after-output repl height)))
+      (adjust-items-after-output repl height
+                                 (typep item 'repl-output))))
   item)
 
 ;;;
@@ -139,7 +141,8 @@
   ()
   (:metaclass qt-class)
   (:qt-superclass "QGraphicsTextItem")
-  (:override ("contextMenuEvent" context-menu-event)))
+  (:override ("contextMenuEvent" context-menu-event)
+             ("paint" graphics-item-paint)))
 
 (defmethod initialize-instance :after ((widget text-item) &key (text "")
                                                                editable)
@@ -159,6 +162,16 @@
     (when menu
       (#_exec menu (#_screenPos event)))))
 
+(defgeneric graphics-item-paint (item painter option widget))
+
+(defmethod graphics-item-paint :before ((item text-item) painter option widget)
+  (#_setState option (enum-andc (#_state option)
+                                (#_QStyle::State_Selected)
+                                (#_QStyle::State_HasFocus))))
+
+(defmethod graphics-item-paint ((item text-item) painter option widget)
+  (stop-overriding))
+
 ;;;
 
 (defclass repl-input (text-item)
@@ -170,8 +183,7 @@
                   :accessor current-input))
   (:metaclass qt-class)
   (:qt-superclass "QGraphicsTextItem")
-  (:override ("keyPressEvent" key-press-event)
-             ("paint" graphics-item-paint))
+  (:override ("keyPressEvent" key-press-event))
   (:signals
    ("returnPressed()")
    ("history(bool)"))
@@ -193,21 +205,18 @@
            (setf (history-index widget) -1)
            (stop-overriding)))))
 
-(defgeneric graphics-item-paint (item painter option widget))
-
-(defmethod graphics-item-paint ((item repl-input) painter option widget)
-  (#_setState option (enum-andc (#_state option)
-                                (#_QStyle::State_Selected)
-                                (#_QStyle::State_HasFocus)))
-  (stop-overriding))
-
 ;;;
 
 (defclass result-presentation (text-item)
   ((value :initarg :value
           :initform nil
-          :accessor value))
+          :accessor value)
+   (hovered :initarg :hovered
+            :initform nil
+            :accessor hovered))
   (:metaclass qt-class)
+  (:override ("hoverEnterEvent" hover-enter-event)
+             ("hoverLeaveEvent" hover-leave-event))
   (:slots ("inspect()" (lambda (x)
                          (inspector (value x))))))
 
@@ -215,10 +224,29 @@
                                        &key)
   (#_setDefaultTextColor widget (#_new QColor "#ff0000")))
 
+
+(defgeneric hover-enter-event (widget event))
+(defgeneric hover-leave-event (widget event))
+
+(defmethod hover-enter-event ((widget result-presentation) event)
+  (setf (hovered widget) t)
+  (#_update widget))
+
+(defmethod hover-leave-event ((widget result-presentation) event)
+  (setf (hovered widget) nil)
+  (#_update widget))
+
 (defmethod context-menu ((widget result-presentation))
   (let ((menu (#_new QMenu)))
     (add-qaction menu "Inspect" widget "inspect()")
     menu))
+
+(defmethod graphics-item-paint ((item result-presentation) painter option widget)
+  (cond ((hovered item)
+         (call-next-qmethod )
+         (#_drawRoundedRect painter (#_boundingRect item) 2 2))
+        (t
+         (stop-overriding))))
 
 ;;;
 
@@ -298,7 +326,8 @@
         (cond ((used output)
                (adjust-items-after-output repl
                                           (- (#_height (#_size (#_document output)))
-                                             height)))
+                                             height)
+                                          t))
               (t
                (add-text-to-repl repl output :position (place output))
                (setf (used output) t)))))))

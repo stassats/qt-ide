@@ -7,8 +7,8 @@
 (named-readtables:in-readtable :qt)
 
 (defclass repl-output-stream
-    (fundamental-character-output-stream
-     trivial-gray-stream-mixin)
+    (trivial-gray-stream-mixin
+     fundamental-character-output-stream)
   ((repl-window :initarg :repl-window
                 :initform nil
                 :accessor repl-window)
