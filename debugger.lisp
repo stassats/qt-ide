@@ -6,22 +6,45 @@
 (in-package #:qt-ide)
 (named-readtables:in-readtable :qt)
 
-(defclass debugger ()
-  ((condition :initform nil
-              :initarg :condition)
-   (selected-restart :initform nil)
-   restarts)
+(defclass debugger (window)
+  ((context :initarg :context
+            :initform nil
+            :accessor context) 
+   (restarts :initform nil
+             :accessor restarts))
   (:metaclass qt-class)
   (:qt-superclass "QDialog")
   (:slots ("restartSelected(int)" restart-selected)
-          ("debugInSlime()" debug-in-slime)))
+          ("debugInSlime()" debug-in-slime))
+  (:default-initargs :title "Debugger"))
 
-(defun debug-in-slime (window)
-  (invoke-debugger (slot-value window 'condition)))
+(defstruct debugger-context
+  condition
+  (eval-queue (lparallel.queue:make-queue))
+  (result-queue (lparallel.queue:make-queue)))
+
+(defvar *end-context* (gensym "END-CONTEXT"))
+
+(defun eval-in-context (context function)
+  (lparallel.queue:push-queue function
+                              (debugger-context-eval-queue context))
+  (values-list (lparallel.queue:pop-queue 
+                (debugger-context-result-queue context))))
+
+(defun eval-in-context-no-result (context function)
+  (lparallel.queue:push-queue function
+                              (debugger-context-eval-queue context)))
+
+(defun context-evaluator (context)
+  (loop for function = (lparallel.queue:pop-queue (debugger-context-eval-queue context))
+        until (eq function *end-context*)
+        do (lparallel.queue:push-queue (multiple-value-list (funcall function))
+                                       (debugger-context-result-queue context))))
 
 (defun restart-selected (window int)
-  (setf (slot-value window 'selected-restart)
-        (nth int (slot-value window 'restarts)))
+  (eval-in-context-no-result
+   (context window)
+   (lambda () (invoke-restart  (nth int (restarts window)))))
   (#_accept window))
 
 (defun add-restarts (window vbox restarts)
@@ -39,13 +62,16 @@
 
 #+swank
 (defmethod initialize-instance :after ((window debugger)
-                                       &key parent condition)
-  (new-instance window parent)
-  (#_setWindowTitle window "Debugger")
-  (let ((vbox (#_new QVBoxLayout window))
-        (restarts (compute-restarts condition))
-        (backtrace (make-instance 'list-widget
-                                  :items (swank:backtrace 0 nil))))
+                                       &key parent context)
+  (let* ((vbox (#_new QVBoxLayout window))
+         (condition (debugger-context-condition context))
+         (restarts (eval-in-context context
+                                    (lambda () (compute-restarts condition))))
+         (backtrace (make-instance 'list-widget
+                                   :items
+                                   (eval-in-context context
+                                                    (lambda ()
+                                                      (swank:backtrace 0 nil))))))
     (setf (slot-value window 'restarts) restarts)
     (with-layout (hbox "QHBoxLayout" vbox)
       (let ((icon (#_new QLabel)))
@@ -55,25 +81,23 @@
         (#_addStretch hbox)))
 
     (add-restarts window vbox restarts)
-    (add-widgets vbox backtrace))
+    (add-widgets vbox backtrace)))
 
-  (connect window "rejected()"
-           window "debugInSlime()"))
 #+swank
-(defun invoke-graphic-debugger (condition &optional debugger-hook)
+(defun invoke-graphic-debugger (parent condition &optional debugger-hook)
   (declare (ignore debugger-hook))
-  (handler-bind (;; (error (lambda (c)
-                 ;;          (princ c)
-                 ;;          (invoke-debugger condition)))
-                 )
+  (let ((context (make-debugger-context :condition condition)))
+    (lparallel.queue:push-queue
+     (lambda ()
+       (exec-window (make-instance 'debugger :context context)))
+     (debugger-queue parent))
+    (emit-signal parent "invokeDebugger()")
     (swank-backend:call-with-debugging-environment
      (lambda ()
-       (let ((debugger (make-instance 'debugger :condition condition)))
-         (#_exec debugger)
-         (if (slot-value debugger 'selected-restart)
-             (invoke-restart (slot-value debugger 'selected-restart))
-             (invoke-debugger condition)))))))
+       (context-evaluator context)))))
 
-(defmacro with-graphic-debugger (&body body)
-  `(let ((*debugger-hook* 'invoke-graphic-debugger))
+(defmacro with-graphic-debugger ((parent) &body body)
+  `(let* ((*debugger-hook*
+            (lambda (condition debugger-hook)
+              (invoke-graphic-debugger ,parent condition debugger-hook))))
      ,@body))

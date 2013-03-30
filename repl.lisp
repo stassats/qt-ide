@@ -12,6 +12,7 @@
 
 (defun repl ()
   (let ((lparallel:*kernel* *repl-kernel*)
+        (lparallel.kernel:*debug-tasks-p* nil)
         (*package* *package*)
         (* *)
         (** **)
@@ -34,9 +35,9 @@
     name))
 
 (defclass repl (window)
-  ((eval-channel :initform nil
+  ((eval-channel :initform (lparallel:make-channel)
                  :accessor eval-channel)
-   (result-queue :initform nil
+   (result-queue :initform (lparallel.queue:make-queue)
                  :accessor result-queue)
    (input :initform nil
           :accessor input)
@@ -59,7 +60,9 @@
    (output-stream :initform nil
                   :accessor output-stream)
    (timer :initform nil
-          :accessor timer))
+          :accessor timer)
+   (debugger-queue :initform (lparallel.queue:make-queue)
+                   :accessor debugger-queue))
   (:metaclass qt-class)
   (:qt-superclass "QDialog")
   (:slots
@@ -67,8 +70,10 @@
    ("history(bool)" choose-history)
    ("insertOutput()" insert-output)
    ("insertResults()" insert-results)
+   ("invokeDebugger()" start-debugger)
    ("makeInputVisible(QRectF)" make-input-visible))
-  (:signals ("insertResults()"))
+  (:signals ("insertResults()")
+            ("invokeDebugger()"))
   (:default-initargs :title "REPL"))
   
 (defmethod initialize-instance :after ((window repl) &key)
@@ -82,8 +87,6 @@
     (#_setAlignment view (enum-or (#_Qt::AlignLeft) (#_Qt::AlignTop)))
     (#_setItemIndexMethod scene (#_QGraphicsScene::NoIndex))
     (setf (timer window) timer
-          (eval-channel window) (lparallel:make-channel)
-          (result-queue window) (lparallel.queue:make-queue)
           (current-package window)
           (progn (lparallel:submit-task (eval-channel window)
                                         (lambda () *package*))
@@ -93,8 +96,7 @@
           (scene window) scene
           (view window) view
           (output-stream window)
-          (make-instance 'repl-output-stream
-                         :repl-window window))
+          (make-instance 'repl-output-stream :repl-window window))
     (update-input window)
     (#_addItem scene input)
     (#_addItem scene package-indicator)
@@ -106,6 +108,7 @@
     (connect scene "sceneRectChanged(QRectF)"
              window "makeInputVisible(QRectF)")
     (connect window "insertResults()" window "insertResults()")
+    (connect window "invokeDebugger()" window "invokeDebugger()")
     (connect timer "timeout()" window "insertOutput()")
     (#_start timer 30)))
 
@@ -239,7 +242,7 @@
 
 (defmethod graphics-item-paint ((item result-presentation) painter option widget)
   (cond ((hovered item)
-         (call-next-qmethod )
+         (call-next-qmethod)
          (#_drawRoundedRect painter (#_boundingRect item) 2 2))
         (t
          (stop-overriding))))
@@ -296,7 +299,7 @@
          (*error-output* output-stream)
          ;;(*debug-io* (make-two-way-stream *debug-io* output-stream))
          (*query-io* (make-two-way-stream *query-io* output-stream)))
-    (progn ;; with-graphic-debugger
+    (with-graphic-debugger (repl)
       (multiple-value-list
        (eval (read-from-string string))))))
 
@@ -351,6 +354,9 @@
                  (push (add-result-to-repl result repl)
                        (things-to-move repl)))))
     (update-input repl)))
+
+(defun start-debugger (repl)
+  (funcall (lparallel.queue:pop-queue (debugger-queue repl))))
 
 (defun perform-evaluation (string repl)
   (lparallel.queue:push-queue (evaluate-string repl string)
