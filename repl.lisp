@@ -76,7 +76,7 @@
          (vbox (#_new QVBoxLayout window))
          (view (#_new QGraphicsView scene window))
          (input (make-instance 'repl-input))
-         (package-indicator (#_addText scene "" *default-qfont*))
+         (package-indicator (make-instance 'package-indicator))
          (timer (#_new QTimer window)))
     (add-widgets vbox view)
     (#_setAlignment view (enum-or (#_Qt::AlignLeft) (#_Qt::AlignTop)))
@@ -95,13 +95,9 @@
           (output-stream window)
           (make-instance 'repl-output-stream
                          :repl-window window))
-    (#_setDefaultTextColor package-indicator
-                           (or *package-indicator-color*
-                               (setf *package-indicator-color*
-                                     (#_new QColor "#a020f0"))))
-    (#_setDocumentMargin (#_document package-indicator) 1)
     (update-input window)
     (#_addItem scene input)
+    (#_addItem scene package-indicator)
     (#_setFocus input)
     (connect input "returnPressed()"
              window "evaluate()")
@@ -265,6 +261,17 @@
 (defmethod initialize-instance :after ((widget repl-output) &key)
   (setf (cursor widget)
         (#_new QTextCursor (#_document widget))))
+;;;
+
+(defclass package-indicator (text-item)
+  ()
+  (:metaclass qt-class))
+
+(defmethod initialize-instance :after ((widget package-indicator) &key)
+  (#_setDefaultTextColor widget
+                         (or *package-indicator-color*
+                             (setf *package-indicator-color*
+                                   (#_new QColor "#a020f0")))))
 
 ;;;
 
