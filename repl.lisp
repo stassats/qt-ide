@@ -8,23 +8,10 @@
 
 (defvar *repl-history* nil)
 (defvar *package-indicator-color* nil)
-(defvar *repl-kernel* (lparallel:make-kernel 1 :name "qt-repl"))
+(defvar *repl-channel* nil)
 
 (defun repl ()
-  (let ((lparallel:*kernel* *repl-kernel*)
-        (lparallel.kernel:*debug-tasks-p* nil)
-        (*package* *package*)
-        (* *)
-        (** **)
-        (*** ***)
-        (/ /)
-        (// //)
-        (/// ///)
-        (+ +)
-        (++ ++)
-        (+++ +++)
-        (- -))
-    (exec-window (make-instance 'repl))))
+  (exec-window (make-instance 'repl)))
 
 (defun short-package-name (package)
   (let* ((name (package-name package))
@@ -35,10 +22,8 @@
     name))
 
 (defclass repl (window)
-  ((eval-channel :initform (lparallel:make-channel)
+  ((eval-channel :initform nil
                  :accessor eval-channel)
-   (result-queue :initform (make-queue)
-                 :accessor result-queue)
    (input :initform nil
           :accessor input)
    (current-package :initarg :current-package
@@ -86,11 +71,15 @@
     (add-widgets vbox view)
     (#_setAlignment view (enum-or (#_Qt::AlignLeft) (#_Qt::AlignTop)))
     (#_setItemIndexMethod scene (#_QGraphicsScene::NoIndex))
-    (setf (timer window) timer
+    (if (and *repl-channel*
+             (channel-alive-p *repl-channel*))
+        (flush-channel *repl-channel*)
+        (setf *repl-channel* (make-channel-thread "qt-repl")))
+    (setf (eval-channel window) *repl-channel*
+          (timer window) timer
           (current-package window)
-          (progn (lparallel:submit-task (eval-channel window)
-                                        (lambda () *package*))
-                 (lparallel:receive-result (eval-channel window)))
+          (call-in-channel (eval-channel window)
+                           (lambda () *package*))
           (input window) input
           (package-indicator window) package-indicator
           (scene window) scene
@@ -116,9 +105,9 @@
   (with-slots (package-indicator input
                item-position things-to-move) repl
     (when move
-     (loop for thing in things-to-move
-           do
-           (#_moveBy thing 0 amount)))
+      (loop for thing in things-to-move
+            do
+            (#_moveBy thing 0 amount)))
     (#_moveBy input 0 amount)
     (#_moveBy package-indicator 0 amount)
     (incf item-position amount)))
@@ -293,6 +282,14 @@
 (defun make-input-visible (repl rect)
   (#_centerOn (view repl) (#_bottomLeft rect)))
 
+(defmacro with-eval-restarts (&body body)
+  `(block nil
+     (restart-case
+         (progn ,@body)
+       (abort ()
+         :report "Return to toplevel"
+         (return)))))
+
 (defun evaluate-string (repl string)
   (let* ((output-stream (output-stream repl))
          (*standard-output* output-stream)
@@ -300,8 +297,9 @@
          ;;(*debug-io* (make-two-way-stream *debug-io* output-stream))
          (*query-io* (make-two-way-stream *query-io* output-stream)))
     (with-graphic-debugger (repl)
-      (multiple-value-list
-       (eval (read-from-string string))))))
+      (with-eval-restarts
+        (multiple-value-list
+         (eval (read-from-string string)))))))
 
 (defun adjust-history (new-input)
   (unless (equal new-input (car *repl-history*))
@@ -344,7 +342,7 @@
 
 (defun insert-results (repl)
   (insert-output repl)
-  (let ((results (pop-queue (result-queue repl))))
+  (let ((results (channel-result (eval-channel repl))))
     (cond ((null results)
            (push (add-string-to-repl "; No values" repl)
                  (things-to-move repl)))
@@ -359,10 +357,10 @@
   (funcall (pop-queue (debugger-queue repl))))
 
 (defun perform-evaluation (string repl)
-  (push-queue (evaluate-string repl string)
-                              (result-queue repl))
-  (setf (current-package repl) *package*)
-  (emit-signal repl "insertResults()"))
+  (unwind-protect
+       (evaluate-string repl string)
+    (setf (current-package repl) *package*)
+    (emit-signal repl "insertResults()")))
 
 (defun evaluate (repl)
   (with-slots (input package-indicator item-position
@@ -383,8 +381,9 @@
       (setf (place output) item-position)
       (adjust-history string-to-eval)
       (setf (history-index input) -1)
-      (lparallel:submit-task eval-channel
-                             #'perform-evaluation string-to-eval repl))))
+      (submit-to-channel eval-channel
+                         (lambda ()
+                           (perform-evaluation string-to-eval repl))))))
 
 (defun choose-history (window previous-p)
   (with-slots (input scene last-output-position view) window

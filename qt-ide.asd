@@ -7,6 +7,7 @@
                   trivial-gray-streams
                   lparallel)
   :components ((:file "packages")
+               (:file "channel")
                (:file "share")
                (:file "qt-ide")
                (:file "debugger")
