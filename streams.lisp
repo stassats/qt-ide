@@ -6,17 +6,19 @@
 (in-package #:qt-ide)
 (named-readtables:in-readtable :qt)
 
+(defclass repl-stream ()
+  ((window :initarg :window
+           :initform nil
+           :accessor window)
+   (queue :initform (make-queue)
+          :accessor queue)))
+
 (defclass repl-output-stream
-    (trivial-gray-stream-mixin
-     fundamental-character-output-stream)
-  ((repl-window :initarg :repl-window
-                :initform nil
-                :accessor repl-window)
-   (output-queue :initform (lparallel.queue:make-queue)
-                 :accessor output-queue)))
+    (repl-stream fundamental-character-output-stream)
+  ())
 
 (defun append-to-output (stream string)
-  (lparallel.queue:push-queue string (output-queue stream)))
+  (push-queue string (queue stream)))
 
 (defmethod stream-write-char ((stream repl-output-stream) char)
   (append-to-output stream (string char)))
@@ -32,3 +34,26 @@
 (defmethod stream-terpri
     ((stream repl-output-stream))
   (append-to-output stream #.(string #\Newline)))
+
+(defclass repl-input-stream
+    (repl-stream fundamental-character-input-stream)
+  ())
+
+(defmethod stream-read-line ((stream repl-input-stream))
+  (when (queue-empty-p (queue stream))
+    (emit-signal (window stream) "queryInput()"))
+  (values (with-output-to-string (str)
+            (loop for char = (pop-queue (queue stream))
+                  until (char= char #\Newline)
+                  do
+                  (write-char char str)))
+          nil))
+
+(defmethod stream-read-char ((stream repl-input-stream))
+  (when (queue-empty-p (queue stream))
+    (emit-signal (window stream) "queryInput()"))
+  (values (pop-queue (queue stream))
+          nil))
+
+(defmethod stream-line-column ((stream repl-input-stream))
+  nil)

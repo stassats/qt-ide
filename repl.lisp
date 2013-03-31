@@ -63,7 +63,10 @@
    (timer :initform nil
           :accessor timer)
    (debugger-queue :initform (make-queue)
-                   :accessor debugger-queue))
+                   :accessor debugger-queue)
+   (query-stream :initarg :query-stream
+                 :initform nil
+                 :accessor query-stream))
   (:metaclass qt-class)
   (:qt-superclass "QDialog")
   (:slots
@@ -72,9 +75,11 @@
    ("insertOutput()" insert-output)
    ("insertResults()" insert-results)
    ("invokeDebugger()" start-debugger)
-   ("makeInputVisible(QRectF)" make-input-visible))
+   ("makeInputVisible(QRectF)" make-input-visible)
+   ("queryInput()" query-input))
   (:signals ("insertResults()")
-            ("invokeDebugger()"))
+            ("invokeDebugger()")
+            ("queryInput()"))
   (:default-initargs :title "REPL"))
 
 (defmethod initialize-instance :after ((window repl) &key)
@@ -101,7 +106,11 @@
           (scene window) scene
           (view window) view
           (output-stream window)
-          (make-instance 'repl-output-stream :repl-window window))
+          (make-instance 'repl-output-stream :window window)
+          (query-stream window)
+          (make-two-way-stream
+           (make-instance 'repl-input-stream :window window)
+           (make-instance 'repl-output-stream :window window)))
     (update-input window)
     (#_addItem scene input)
     (#_addItem scene package-indicator)
@@ -112,8 +121,12 @@
              window "history(bool)")
     (connect scene "sceneRectChanged(QRectF)"
              window "makeInputVisible(QRectF)")
-    (connect window "insertResults()" window "insertResults()")
-    (connect window "invokeDebugger()" window "invokeDebugger()")
+    (connect window "insertResults()"
+             window "insertResults()")
+    (connect window "invokeDebugger()"
+             window "invokeDebugger()")
+    (connect window "queryInput()"
+             window "queryInput()")
     (connect timer "timeout()" window "insertOutput()")
     (#_start timer 30)))
 
@@ -340,10 +353,10 @@
 
 (defun insert-output (repl)
   (with-slots (output output-stream) repl
-    (unless (queue-empty-p (output-queue output-stream))
+    (unless (queue-empty-p (queue output-stream))
       (let* ((output (output repl))
              (cursor (cursor output))
-             (string (concatenate-output-queue (output-queue output-stream)))
+             (string (concatenate-output-queue (queue output-stream)))
              (height (#_height (#_size (#_document output)))))
         (#_movePosition cursor (#_QTextCursor::End))
         (#_insertText cursor string)
