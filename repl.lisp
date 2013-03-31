@@ -37,7 +37,7 @@
 (defclass repl (window)
   ((eval-channel :initform (lparallel:make-channel)
                  :accessor eval-channel)
-   (result-queue :initform (lparallel.queue:make-queue)
+   (result-queue :initform (make-queue)
                  :accessor result-queue)
    (input :initform nil
           :accessor input)
@@ -61,7 +61,7 @@
                   :accessor output-stream)
    (timer :initform nil
           :accessor timer)
-   (debugger-queue :initform (lparallel.queue:make-queue)
+   (debugger-queue :initform (make-queue)
                    :accessor debugger-queue))
   (:metaclass qt-class)
   (:qt-superclass "QDialog")
@@ -321,12 +321,12 @@
 
 (defun concatenate-output-queue (queue)
   (with-output-to-string (str)
-    (loop until (lparallel.queue:queue-empty-p queue)
-          do (write-string (lparallel.queue:pop-queue queue) str))))
+    (loop until (queue-empty-p queue)
+          do (write-string (pop-queue queue) str))))
 
 (defun insert-output (repl)
   (with-slots (output output-stream) repl
-    (unless (lparallel.queue:queue-empty-p (output-queue output-stream))
+    (unless (queue-empty-p (output-queue output-stream))
       (let* ((output (output repl))
              (cursor (cursor output))
              (string (concatenate-output-queue (output-queue output-stream)))
@@ -344,7 +344,7 @@
 
 (defun insert-results (repl)
   (insert-output repl)
-  (let ((results (lparallel.queue:pop-queue (result-queue repl))))
+  (let ((results (pop-queue (result-queue repl))))
     (cond ((null results)
            (push (add-string-to-repl "; No values" repl)
                  (things-to-move repl)))
@@ -356,10 +356,10 @@
     (update-input repl)))
 
 (defun start-debugger (repl)
-  (funcall (lparallel.queue:pop-queue (debugger-queue repl))))
+  (funcall (pop-queue (debugger-queue repl))))
 
 (defun perform-evaluation (string repl)
-  (lparallel.queue:push-queue (evaluate-string repl string)
+  (push-queue (evaluate-string repl string)
                               (result-queue repl))
   (setf (current-package repl) *package*)
   (emit-signal repl "insertResults()"))

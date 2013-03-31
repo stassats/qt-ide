@@ -18,33 +18,14 @@
           ("debugInSlime()" debug-in-slime))
   (:default-initargs :title "Debugger"))
 
-(defstruct debugger-context
-  condition
-  (eval-queue (lparallel.queue:make-queue))
-  (result-queue (lparallel.queue:make-queue)))
-
-(defvar *end-context* (gensym "END-CONTEXT"))
-
-(defun eval-in-context (context function)
-  (lparallel.queue:push-queue function
-                              (debugger-context-eval-queue context))
-  (values-list (lparallel.queue:pop-queue 
-                (debugger-context-result-queue context))))
-
-(defun eval-in-context-no-result (context function)
-  (lparallel.queue:push-queue function
-                              (debugger-context-eval-queue context)))
-
-(defun context-evaluator (context)
-  (loop for function = (lparallel.queue:pop-queue (debugger-context-eval-queue context))
-        until (eq function *end-context*)
-        do (lparallel.queue:push-queue (multiple-value-list (funcall function))
-                                       (debugger-context-result-queue context))))
+(defstruct (debugger-context
+            (:include channel))
+  condition)
 
 (defun restart-selected (window int)
-  (eval-in-context-no-result
+  (call-in-channel
    (context window)
-   (lambda () (invoke-restart  (nth int (restarts window)))))
+   (lambda () (invoke-restart (nth int (restarts window)))))
   (#_accept window))
 
 (defun add-restarts (window vbox restarts)
@@ -60,18 +41,18 @@
     (connect button-group "buttonClicked(int)" window
              "restartSelected(int)")))
 
-#+swank
 (defmethod initialize-instance :after ((window debugger)
-                                       &key parent context)
+                                       &key context)
   (let* ((vbox (#_new QVBoxLayout window))
          (condition (debugger-context-condition context))
-         (restarts (eval-in-context context
+         (restarts (call-in-channel context
                                     (lambda () (compute-restarts condition))))
          (backtrace (make-instance 'list-widget
                                    :items
-                                   (eval-in-context context
-                                                    (lambda ()
-                                                      (swank:backtrace 0 nil))))))
+                                   (call-in-channel
+                                    context
+                                    (lambda ()
+                                      (swank:backtrace 0 nil))))))
     (setf (slot-value window 'restarts) restarts)
     (with-layout (hbox "QHBoxLayout" vbox)
       (let ((icon (#_new QLabel)))
@@ -83,18 +64,17 @@
     (add-restarts window vbox restarts)
     (add-widgets vbox backtrace)))
 
-#+swank
 (defun invoke-graphic-debugger (parent condition &optional debugger-hook)
   (declare (ignore debugger-hook))
   (let ((context (make-debugger-context :condition condition)))
-    (lparallel.queue:push-queue
+    (push-queue
      (lambda ()
        (exec-window (make-instance 'debugger :context context)))
      (debugger-queue parent))
     (emit-signal parent "invokeDebugger()")
     (swank-backend:call-with-debugging-environment
      (lambda ()
-       (context-evaluator context)))))
+       (channel-loop context)))))
 
 (defmacro with-graphic-debugger ((parent) &body body)
   `(let* ((*debugger-hook*

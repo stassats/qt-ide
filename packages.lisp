@@ -2,7 +2,8 @@
 
 (defpackage #:qt-ide
   (:use #:cl #:qt #:qt-ui
-        #:trivial-gray-streams)
+        #:trivial-gray-streams
+        #:lparallel.queue)
   (:shadow window)
   (:export
    #:ide
