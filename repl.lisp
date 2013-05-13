@@ -21,6 +21,22 @@
           do (setf name nickname))
     name))
 
+(defclass repl-scene ()
+  ((repl-window :initarg :parent
+                :initform nil
+                :accessor repl-window))
+  (:metaclass qt-class)
+  (:qt-superclass "QGraphicsScene")
+  (:override ("keyPressEvent" key-press-event)))
+
+(defmethod initialize-instance :after ((scene repl-scene) &key parent)
+  (new-instance scene parent))
+
+(defmethod key-press-event ((widget repl-scene) event)
+  (let ((input (input (repl-window widget))))
+    (#_setFocus input)
+    (stop-overriding)))
+
 (defclass repl (window)
   ((eval-channel :initform nil
                  :accessor eval-channel)
@@ -60,9 +76,9 @@
   (:signals ("insertResults()")
             ("invokeDebugger()"))
   (:default-initargs :title "REPL"))
-  
+
 (defmethod initialize-instance :after ((window repl) &key)
-  (let* ((scene (#_new QGraphicsScene window))
+  (let* ((scene (make-instance 'repl-scene :parent window))
          (vbox (#_new QVBoxLayout window))
          (view (#_new QGraphicsView scene window))
          (input (make-instance 'repl-input))
