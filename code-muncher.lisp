@@ -247,3 +247,18 @@
             return (make-comment (p-stream-position stream))
             when (char= (p-read-char stream) #\Newline)
             return (make-comment (1- (p-stream-position stream)))))))
+
+(define-reader-macro-parser (#\") (stream)
+  (with-output-to-string (string)
+    (loop with escaping
+          for char = (p-read-char stream)
+          do
+          (cond (escaping
+                 (write-char char string)
+                 (setf escaping nil))
+                ((char= char #\\)
+                 (setf escaping t))
+                ((char= char #\")
+                 (return))
+                (t
+                 (write-char char string))))))
