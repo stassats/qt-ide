@@ -79,6 +79,9 @@
   (package nil :type (or package string null))
   (external nil :type boolean))
 
+(defstruct p-comment
+  (text nil :type simple-string))
+
 ;;; 
 
 (defun parse-lisp-string (string)
@@ -181,7 +184,6 @@
                         (when (find #\: string :start start :end (1- colons))
                           (error "Too many colons"))
                         (setf package (subseq string 0 colons))))
-                 
                  (make-p-symbol :name symbol-name
                                 :package package
                                 :external external)))
@@ -236,3 +238,12 @@
 
 (define-reader-macro-parser (#\') (stream)
   (list 'quote (parse-lisp-code stream)))
+
+(define-reader-macro-parser (#\;) (stream)
+  (let ((start (p-stream-position stream)))
+    (flet ((make-comment (end)
+             (make-p-comment :text (subseq (p-stream-string stream) start end))))
+      (loop when (end-of-p-stream-p stream)
+            return (make-comment (p-stream-position stream))
+            when (char= (p-read-char stream) #\Newline)
+            return (make-comment (1- (p-stream-position stream)))))))
