@@ -76,7 +76,8 @@
 
 (defstruct p-symbol
   (name nil :type simple-string)
-  (package nil :type package))
+  (package nil :type (or package string null))
+  (external nil :type boolean))
 
 ;;; 
 
@@ -147,8 +148,38 @@
              (read-negative-number ()
                (- (read-number)))
              (create-symbol (end)
-               (make-p-symbol :name (subseq (p-stream-string stream) start end)
-                              :package *package*))
+               (let* ((string (p-stream-string stream))
+                      (keyword (char= (char string start) #\:))
+                      (colons (position #\: string :start (1+ start) :end end
+                                                   :from-end t))
+                      external
+                      package
+                      symbol-name)
+                 (when (and keyword colons)
+                   (error "Colons and keywords"))
+                 (when (eql colons end)
+                   (error "Colons at the end"))
+                 (cond ((not colons)
+                        (setf package (if keyword
+                                          (find-package :keyword)
+                                          *package*)
+                              symbol-name (if keyword
+                                              (subseq string (1+ start) end)
+                                              (subseq string start end))))
+                       (t
+                        (setf symbol-name (subseq string colons end))
+                        (cond
+                          ((char= (char string (1- colons)) #\:)
+                           (decf colons))
+                          (t
+                           (setf external t)))
+                        (when (find #\: string :start start :end (1- colons))
+                          (error "Too many colons"))
+                        (setf package (subseq string 0 colons))))
+                 
+                 (make-p-symbol :name symbol-name
+                                :package package
+                                :external external)))
              (read-symbol ()
                (loop (next-char)
                      (cond ((terminating-char-p char)
