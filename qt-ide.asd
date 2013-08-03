@@ -9,6 +9,7 @@
   :components ((:file "packages")
                (:file "channel")
                (:file "share")
+               (:file "code-muncher")
                (:file "qt-ide")
                (:file "debugger")
                (:file "streams")

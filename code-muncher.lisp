@@ -1,0 +1,191 @@
+;;; -*- Mode: Lisp -*-
+
+;;; This software is in the public domain and is
+;;; provided with absolutely no warranty.
+
+(in-package #:qt-ide)
+
+(defstruct p-stream
+  (string nil :type simple-string)
+  (position 0 :type fixnum))
+
+(defun p-read-char (p-stream)
+  (let ((string (p-stream-string p-stream))
+        (position (p-stream-position p-stream)))
+    (cond ((end-of-p-stream-p p-stream)
+           (error 'end-of-file))
+          (t
+           (prog1 (char string position)
+             (setf (p-stream-position p-stream) (1+ position)))))))
+
+(defun whitespace-char-p (char)
+  (find char #(#\Space #\Tab #\Newline #\Return)))
+
+(defun end-of-p-stream-p (p-stream)
+  (= (p-stream-position p-stream) (length (p-stream-string p-stream))))
+
+(defun p-peek-char (&optional peek-type p-stream)
+  (let ((string (p-stream-string p-stream))
+        (position (p-stream-position p-stream)))
+    (cond (peek-type
+           (let ((non-whitespace (position-if-not #'whitespace-char-p string :start position)))
+             (unless non-whitespace
+               (error 'end-of-file))
+             (setf (p-stream-position p-stream) non-whitespace)
+             (char string non-whitespace)))
+          ((end-of-p-stream-p p-stream)
+           (error 'end-of-file))
+          (t
+           (char string position)))))
+
+(defun p-unread-char (p-stream)
+  (when (minusp (decf (p-stream-position p-stream)))
+    (error "Beginning of stream ~a" p-stream)))
+;;;
+
+(defvar *reader-macros-parsers*
+  (make-array 255 :initial-element nil))
+
+(defvar *non-terminating-reader-macros-parsers*
+  (make-array 255 :initial-element nil))
+
+(defmacro define-reader-macro-parser ((char &key (terminating t)) lambda-list &body body)
+  (let ((name (intern (format nil "~a-~a" 'reader-macro-parser char))))
+    `(progn (defun ,name ,lambda-list
+              ,@body)
+            (setf (svref ,(if terminating
+                              '*reader-macros-parsers*
+                              '*non-terminating-reader-macros-parsers*)
+                         ,(char-code char))
+                  #',name)
+            ',name)))
+
+(defun get-reader-macro-parser (char &optional (terminating t))
+  (let ((code (char-code char))
+        (array (if terminating
+                   *reader-macros-parsers*
+                   *non-terminating-reader-macros-parsers*)))
+    (and (array-in-bounds-p array code)
+         (svref array code))))
+
+(defun terminating-char-p (char)
+  (or (whitespace-char-p char)
+      (get-reader-macro-parser char)))
+
+;;;
+
+(defstruct p-symbol
+  (name nil :type simple-string)
+  (package nil :type package))
+
+;;; 
+
+(defun parse-lisp-string (string)
+  (parse-lisp-code (make-p-stream :string string)))
+
+(defun parse-token (stream)
+  (let ((start (p-stream-position stream))
+        (number 0)
+        char)
+    (labels ((next-char ()
+               (setf char (p-read-char stream)))
+             (unread ()
+               (p-unread-char stream))
+             (end-p ()
+               (end-of-p-stream-p stream))
+             (read-float ()
+               (+ number
+                  (setf number 0)
+                  (loop for decimal = 10 then (* decimal 10)
+                        do
+                        (next-char)
+                        (cond ((terminating-char-p char)
+                               (unread)
+                               (return number))
+                              ((digit-char-p char)
+                               (setf number (+ (* number 10) (digit-char-p char))))
+                              (t
+                               (unread)
+                               (read-symbol)))
+                        (when (end-p)
+                          (return (/ number (float decimal)))))))
+             (read-ratio ()
+               (cond ((end-p)
+                      (unread)
+                      (read-symbol))
+                     (t
+                      (/ number
+                         (loop initially (setf number 0)
+                               do
+                               (next-char)
+                               (cond ((terminating-char-p char)
+                                      (unread)
+                                      (return number))
+                                     ((digit-char-p char)
+                                      (setf number (+ (* number 10) (digit-char-p char))))
+                                     (t
+                                      (unread)
+                                      (read-symbol)))
+                               (when (end-p)
+                                 (return number)))))))
+             (read-number ()
+               (loop (next-char)
+                     (cond ((terminating-char-p char)
+                            (unread)
+                            (return number))
+                           ((digit-char-p char)
+                            (setf number (+ (* number 10) (digit-char-p char))))
+                           ((char= char #\.)
+                            (return (read-float)))
+                           ((char= char #\/)
+                            (return (read-ratio)))
+                           (t
+                            (unread)
+                            (read-symbol)))
+                     (when (end-p)
+                       (return number))))
+             (read-negative-number ()
+               (- (read-number)))
+             (create-symbol (end)
+               (make-p-symbol :name (subseq (p-stream-string stream) start end)
+                              :package *package*))
+             (read-symbol ()
+               (loop (next-char)
+                     (cond ((terminating-char-p char)
+                            (unread)
+                            (return-from parse-token
+                              (create-symbol (p-stream-position stream))))
+                           ((end-p)
+                            (return-from parse-token
+                              (create-symbol (p-stream-position stream)))))))
+             (read-token ()
+               (case (next-char)
+                 (#\- (read-negative-number))
+                 (#\+ (read-number))
+                 (#\. (read-float))
+                 (t
+                  (unread)
+                  (if (digit-char-p char)
+                      (read-number)
+                      (read-symbol))))))
+      (read-token))))
+
+(defun parse-lisp-code (stream)
+  (let* ((char (p-peek-char t stream))
+         (rm-parser (get-reader-macro-parser char)))
+    (cond (rm-parser
+           (p-read-char stream)
+           (funcall rm-parser stream))
+          (t
+           (parse-token stream)))))
+
+;;;
+
+(define-reader-macro-parser (#\)) (stream)
+  (declare (ignore stream))
+  (error ") encountered"))
+
+(define-reader-macro-parser (#\() (stream)
+  (loop for char = (p-peek-char t stream)
+        until (char= char #\))
+        collect (parse-lisp-code stream)))
