@@ -97,19 +97,24 @@
              (read-float ()
                (+ number
                   (setf number 0)
-                  (loop for decimal = 10 then (* decimal 10)
+                  (loop with decimal = 1
+                        until (end-p)
                         do
                         (next-char)
                         (cond ((terminating-char-p char)
                                (unread)
-                               (return number))
+                               (loop-finish))
                               ((digit-char-p char)
-                               (setf number (+ (* number 10) (digit-char-p char))))
+                               (setf decimal (* decimal 10)
+                                     number (+ (* number 10) (digit-char-p char))))
                               (t
                                (unread)
                                (read-symbol)))
-                        (when (end-p)
-                          (return (/ number (float decimal)))))))
+                        
+                        finally
+                        (when (= decimal 1)
+                          (error "Dot context error."))
+                        (return (/ number (float decimal))))))
              (read-ratio ()
                (cond ((end-p)
                       (unread)
@@ -217,6 +222,17 @@
   (error ") encountered"))
 
 (define-reader-macro-parser (#\() (stream)
-  (loop for char = (p-peek-char t stream)
+  (loop with dot
+        for char = (p-peek-char t stream)
         until (char= char #\))
-        collect (parse-lisp-code stream)))
+        if (char= char #\.)
+        do
+        (p-read-char stream)
+        (setf dot (parse-lisp-code stream))
+        else
+        collect (parse-lisp-code stream) into result
+        and when dot do (error "Dot in the middle.")
+        finally (return (append result dot))))
+
+(define-reader-macro-parser (#\') (stream)
+  (list 'quote (parse-lisp-code stream)))
