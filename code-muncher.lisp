@@ -10,6 +10,7 @@
   (position 0 :type fixnum))
 
 (defvar *p-base* 10)
+(defvar *p-float-format* 'single-float)
 
 (defun p-read-char (p-stream)
   (let ((string (p-stream-string p-stream))
@@ -132,6 +133,17 @@
           (t
            (parse-token stream)))))
 
+(defun exponent-char-p (char)
+  (find char "esfdl" :test #'char-equal))
+
+(defun exponent-float-format (char)
+  (or (cdr (assoc char '((#\s short-float)
+                         (#\f single-float)
+                         (#\d double-float)
+                         (#\l long-float))
+                  :test #'char-equal))
+      *p-float-format*))
+
 (defun parse-token (stream)
   (let ((start (p-stream-position stream))
         (number 0)
@@ -156,28 +168,59 @@
                          (incf result (* remainder multiplier))
                          when (zerop number)
                          return result)))
-             (read-float ()
-               (+ (change-base number)
-                  (setf number 0)
-                  (loop with *p-base* = 10
-                        with decimal = 1
-                        until (end-p)
-                        do
-                        (next-char)
-                        (cond ((terminating-char-p char)
-                               (unread)
-                               (loop-finish))
-                              ((digit-p)
-                               (setf decimal (* decimal 10)
-                                     number (+ (* number 10) digit)))
-                              (t
-                               (unread)
-                               (read-symbol)))
+             (read-exponent ()
+               (let ((multiple 1))
+                 (when (end-p)
+                   (read-symbol))
+                 (case (next-char)
+                   (#\- (setf multiple -1))
+                   (#\+)
+                   (t
+                    (unread)
+                    (unless (digit-char-p char)
+                      (read-symbol))))
+                 (loop with result = 0
+                       until (end-p)
+                       do
+                       (next-char)
+                       (cond ((terminating-char-p char)
+                              (unread)
+                              (loop-finish))
+                             ((digit-p)
+                              (setf result (+ (* result 10) digit)))
+                             (t
+                              (unread)
+                              (read-symbol)))
                         
-                        finally
-                        (when (= decimal 1)
-                          (error "Dot context error."))
-                        (return (/ number (float decimal))))))
+                       finally
+                       (return (* multiple result)))))
+             (make-float-with-exponent (divisor exponent)
+               (let ((format (exponent-float-format exponent))
+                     (exponent (read-exponent)))
+                 (coerce (/ (* (expt 10 exponent) number) divisor) format)))
+             (read-float ()
+               (setf number (change-base number))
+               (loop with *p-base* = 10
+                     with divisor = 1
+                     until (end-p)
+                     do
+                     (next-char)
+                     (cond ((terminating-char-p char)
+                            (unread)
+                            (loop-finish))
+                           ((exponent-char-p char)
+                            (return (make-float-with-exponent divisor char)))
+                           ((digit-p)
+                            (setf divisor (* divisor 10)
+                                  number (+ (* number 10) digit)))
+                           (t
+                            (unread)
+                            (read-symbol)))
+                        
+                     finally
+                     (when (= divisor 1)
+                       (error "Dot context error."))
+                     (return (coerce (/ number divisor) *p-float-format*))))
              (read-ratio ()
                (cond ((end-p)
                       (unread)
@@ -204,6 +247,9 @@
                             (return number))
                            ((digit-p)
                             (setf number (+ (* number *p-base*) digit)))
+                           ((exponent-char-p char)
+                            (setf number (change-base number))
+                            (return (make-float-with-exponent 1 char)))
                            ((char= char #\.)
                             (if (or (end-p)
                                     (terminating-char-p (p-peek-char nil stream)))
