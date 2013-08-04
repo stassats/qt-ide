@@ -11,6 +11,7 @@
 
 (defvar *p-base* 10)
 (defvar *p-float-format* 'single-float)
+(defvar *p-package* nil)
 
 (defun p-read-char (p-stream)
   (let ((string (p-stream-string p-stream))
@@ -87,8 +88,9 @@
                                     number)
         while digit
         finally
-        (let ((function (and (array-in-bounds-p table (char-code char))
-                             (svref table (char-code char)))))
+        (let* ((code (char-code (char-downcase char)))
+               (function (and (array-in-bounds-p table code)
+                              (svref table code))))
           (if function
               (return (funcall function number stream))
               (error "No dispatch macro for ~c." char)))))
@@ -122,10 +124,16 @@
 (defstruct p-read-eval
   form)
 
+(defstruct p-pathname
+  (namestring nil :type simple-string))
+
 ;;; 
 
 (defun parse-lisp-string (string)
-  (parse-lisp-code (make-p-stream :string string)))
+  (let ((*p-base* *read-base*)
+        (*p-float-format* *read-default-float-format*)
+        (*p-package* *package*))
+    (parse-lisp-code (make-p-stream :string string))))
 
 (defun parse-lisp-code (stream)
   (let* ((char (p-peek-char t stream))
@@ -281,7 +289,7 @@
                  (cond ((not colons)
                         (setf package (if keyword
                                           (find-package :keyword)
-                                          *package*)
+                                          *p-package*)
                               symbol-name (if keyword
                                               (subseq string 1 end)
                                               string)))
@@ -453,3 +461,12 @@
       (when length
         (fill vector (sbit vector (1- bit-length)) :start bit-length))
       vector)))
+
+(define-dispatching-macro-parser (#\# #\:) (parameter stream)
+  (declare (ignore parameter))
+  (let (*p-package*)
+    (parse-lisp-code stream)))
+
+(define-dispatching-macro-parser (#\# #\p) (parameter stream)
+  (declare (ignore parameter))
+  (make-p-pathname :namestring (parse-lisp-code stream)))
