@@ -174,6 +174,9 @@
                (p-unread-char stream))
              (end-p ()
                (end-of-p-stream-p stream))
+             (stop-p ()
+               (or (end-p)
+                   (terminating-char-p (p-peek-char nil stream))))
              (change-base (number)
                (if (= *p-base* 10)
                    number
@@ -187,7 +190,7 @@
                          return result)))
              (read-exponent ()
                (let ((multiple 1))
-                 (when (end-p)
+                 (when (stop-p)
                    (read-symbol))
                  (case (next-char)
                    (#\- (setf multiple -1))
@@ -196,6 +199,8 @@
                     (unread)
                     (unless (digit-char-p char)
                       (read-symbol))))
+                 (when (stop-p)
+                   (read-symbol))
                  (loop with result = 0
                        until (end-p)
                        do
@@ -239,7 +244,7 @@
                        (error "Dot context error."))
                      (return (coerce (/ number divisor) *p-float-format*))))
              (read-ratio ()
-               (cond ((end-p)
+               (cond ((stop-p)
                       (unread)
                       (read-symbol))
                      (t
@@ -258,6 +263,8 @@
                                (when (end-p)
                                  (return number)))))))
              (read-number ()
+               (when (stop-p)
+                 (read-symbol))
                (loop (next-char)
                      (cond ((terminating-char-p char)
                             (unread)
