@@ -338,7 +338,6 @@
   (error ") encountered"))
 
 (define-reader-macro-parser (#\() (stream)
-  (:dbg stream)
   (loop with dot
         for char = (p-peek-char t stream)
         until (char= char #\))
@@ -408,3 +407,22 @@
   (parse-lisp-code stream))
 
 ;;;
+
+(define-dispatching-macro-parser (#\# #\c) (parameter stream)
+  (declare (ignore parameter) )
+  (let ((cons (parse-lisp-code stream)))
+    (if (and (consp cons)
+             (realp (car cons))
+             (realp (cadr cons)))
+        (complex (car cons) (cadr cons))
+        (error "bad complex: ~a" cons))))
+
+(define-dispatching-macro-parser (#\# #\() (length stream)
+  (p-unread-char stream)
+  (let* ((list (parse-lisp-code stream))
+         (list-length (length list))
+         (vector (make-array (or length list-length ))))
+    (replace vector list)
+    (when length
+      (fill vector (svref vector (1- list-length)) :start list-length))
+    vector))
