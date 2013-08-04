@@ -155,8 +155,8 @@
                        (return number))))
              (read-negative-number ()
                (- (read-number)))
-             (create-symbol (end)
-               (let* ((string (p-stream-string stream))
+             (create-symbol (string)
+               (let* ((end (length string))
                       (keyword (char= (char string start) #\:))
                       (colons (position #\: string :start (1+ start) :end end
                                                    :from-end t))
@@ -172,41 +172,56 @@
                                           (find-package :keyword)
                                           *package*)
                               symbol-name (if keyword
-                                              (subseq string (1+ start) end)
-                                              (subseq string start end))))
+                                              (subseq string 1 end)
+                                              string)))
                        (t
-                        (setf symbol-name (subseq string colons end))
+                        (setf symbol-name (subseq string colons))
                         (cond
                           ((char= (char string (1- colons)) #\:)
                            (decf colons))
                           (t
                            (setf external t)))
-                        (when (find #\: string :start start :end (1- colons))
+                        (when (find #\: string :end (1- colons))
                           (error "Too many colons"))
                         (setf package (subseq string 0 colons))))
                  (make-p-symbol :name symbol-name
                                 :package package
                                 :external external)))
              (read-symbol ()
-               (loop (next-char)
-                     (cond ((terminating-char-p char)
-                            (unread)
-                            (return-from parse-token
-                              (create-symbol (p-stream-position stream))))
-                           ((end-p)
-                            (return-from parse-token
-                              (create-symbol (p-stream-position stream)))))))
-             (read-token ()
-               (case (next-char)
-                 (#\- (read-negative-number))
-                 (#\+ (read-number))
-                 (#\. (read-float))
-                 (t
-                  (unread)
-                  (if (digit-char-p char)
-                      (read-number)
-                      (read-symbol))))))
-      (read-token))))
+               (return-from parse-token
+                 (create-symbol
+                  (with-output-to-string (str)
+                    (write-string (p-stream-string stream) str
+                                  :start start
+                                  :end (p-stream-position stream))
+                    (loop with escaping
+                          with multi-escaping
+                          until (end-p)
+                          do
+                          (next-char)
+                          (cond (escaping
+                                 (write-char char str)
+                                 (setf escaping nil))
+                                ((char= char #\|)
+                                 (setf multi-escaping (not multi-escaping)))
+                                ((char= char #\\)
+                                 (setf escaping t))
+                                (multi-escaping
+                                 (write-char char str))
+                                ((terminating-char-p char)
+                                 (unread)
+                                 (return))
+                                (t
+                                 (write-char char str)))))))))
+      (case (next-char)
+        (#\- (read-negative-number))
+        (#\+ (read-number))
+        (#\. (read-float))
+        (t
+         (unread)
+         (if (digit-char-p char)
+             (read-number)
+             (read-symbol)))))))
 
 (defun parse-lisp-code (stream)
   (let* ((char (p-peek-char t stream))
