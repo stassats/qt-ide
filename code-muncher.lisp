@@ -294,7 +294,7 @@
                                               (subseq string 1 end)
                                               string)))
                        (t
-                        (setf symbol-name (subseq string colons))
+                        (setf symbol-name (subseq string (1+ colons)))
                         (cond
                           ((char= (char string (1- colons)) #\:)
                            (decf colons))
@@ -306,13 +306,21 @@
                  (make-p-symbol :name symbol-name
                                 :package package
                                 :external external)))
+             (convert-case (char)
+               (case (readtable-case *readtable*)
+                 (:upcase (char-upcase char))
+                 (:downcase (char-downcase char))
+                 (:preserve char)
+                 (:invert (if (upper-case-p char)
+                              (char-downcase char)
+                              (char-upcase char)))))
              (read-symbol ()
                (return-from parse-token
                  (create-symbol
                   (with-output-to-string (str)
-                    (write-string (p-stream-string stream) str
-                                  :start start
-                                  :end (p-stream-position stream))
+                    (loop for i from start below (p-stream-position stream)
+                          do (write-char (convert-case (char (p-stream-string stream) i))
+                                         str))
                     (loop with escaping
                           with multi-escaping
                           until (end-p)
@@ -331,7 +339,7 @@
                                  (unread)
                                  (return))
                                 (t
-                                 (write-char char str)))))))))
+                                 (write-char (convert-case char) str)))))))))
       (case (next-char)
         (#\- (read-negative-number))
         (#\+ (read-number))
