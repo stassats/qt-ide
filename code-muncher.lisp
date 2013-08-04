@@ -46,32 +46,63 @@
 (defvar *reader-macros-parsers*
   (make-array 255 :initial-element nil))
 
-(defvar *non-terminating-reader-macros-parsers*
-  (make-array 255 :initial-element nil))
-
 (defmacro define-reader-macro-parser ((char &key (terminating t)) lambda-list &body body)
   (let ((name (intern (format nil "~a-~a" 'reader-macro-parser char))))
     `(progn (defun ,name ,lambda-list
               ,@body)
-            (setf (svref ,(if terminating
-                              '*reader-macros-parsers*
-                              '*non-terminating-reader-macros-parsers*)
+            (setf (svref *reader-macros-parsers*
                          ,(char-code char))
-                  #',name)
+                  (cons #',name ,terminating))
             ',name)))
 
 (defun get-reader-macro-parser (char &optional (terminating t))
-  (let ((code (char-code char))
-        (array (if terminating
-                   *reader-macros-parsers*
-                   *non-terminating-reader-macros-parsers*)))
-    (and (array-in-bounds-p array code)
-         (svref array code))))
+  (let* ((code (char-code char))
+         (macro (and (array-in-bounds-p *reader-macros-parsers* code)
+                     (svref *reader-macros-parsers* code))))
+    (and macro
+         (or (not terminating)
+             (cdr macro))
+         (car macro))))
 
 (defun terminating-char-p (char)
   (or (whitespace-char-p char)
       (get-reader-macro-parser char)))
 
+(defmacro define-dispatching-char-parser ((char &key (terminating t)))
+  (let ((name (intern (format nil "~a-~a" 'reader-macro-parser char))))
+    `(progn (setf (svref *reader-macros-parsers* ,(char-code char))
+                  (cons (or (car (svref *reader-macros-parsers* ,(char-code char)))
+                            (make-array 255 :initial-element nil))
+                        ,terminating))
+            ',name)))
+
+(defun invoke-dispatching-reader-macro (table stream)
+  (loop for char = (p-read-char stream)
+        for digit = (digit-char-p char)
+        for number = digit then (if digit
+                                    (+ (* number 10) digit)
+                                    number)
+        while digit
+        finally
+        (let ((function (and (array-in-bounds-p table (char-code char))
+                             (svref table (char-code char)))))
+          (if function
+              (return (funcall function number stream))
+              (error "No dispatch macro for ~c." char)))))
+
+(defun invoke-reader-macro (reader-macro stream)
+  (if (functionp reader-macro)
+      (funcall reader-macro stream)
+      (invoke-dispatching-reader-macro reader-macro stream)))
+
+(defmacro define-dispatching-macro-parser ((dispatch-char char) lambda-list &body body)
+  (let ((name (intern (format nil "~a-~a~a" 'reader-macro-parser dispatch-char char))))
+    `(progn (defun ,name ,lambda-list
+              ,@body)
+            (setf (svref (car (svref *reader-macros-parsers* ,(char-code dispatch-char)))
+                         ,(char-code char))
+                  #',name)
+            ',name)))
 ;;;
 
 (defstruct p-symbol
@@ -82,10 +113,22 @@
 (defstruct p-comment
   (text nil :type simple-string))
 
+(defstruct p-function
+  (name nil :type (or p-symbol symbol cons)))
+
 ;;; 
 
 (defun parse-lisp-string (string)
   (parse-lisp-code (make-p-stream :string string)))
+
+(defun parse-lisp-code (stream)
+  (let* ((char (p-peek-char t stream))
+         (rm-parser (get-reader-macro-parser char nil)))
+    (cond (rm-parser
+           (p-read-char stream)
+           (invoke-reader-macro rm-parser stream))
+          (t
+           (parse-token stream)))))
 
 (defun parse-token (stream)
   (let ((start (p-stream-position stream))
@@ -157,9 +200,8 @@
                (- (read-number)))
              (create-symbol (string)
                (let* ((end (length string))
-                      (keyword (char= (char string start) #\:))
-                      (colons (position #\: string :start (1+ start) :end end
-                                                   :from-end t))
+                      (keyword (char= (char string 0) #\:))
+                      (colons (position #\: string :start 1 :end end :from-end t))
                       external
                       package
                       symbol-name)
@@ -223,15 +265,6 @@
              (read-number)
              (read-symbol)))))))
 
-(defun parse-lisp-code (stream)
-  (let* ((char (p-peek-char t stream))
-         (rm-parser (get-reader-macro-parser char)))
-    (cond (rm-parser
-           (p-read-char stream)
-           (funcall rm-parser stream))
-          (t
-           (parse-token stream)))))
-
 ;;;
 
 (define-reader-macro-parser (#\)) (stream)
@@ -239,6 +272,7 @@
   (error ") encountered"))
 
 (define-reader-macro-parser (#\() (stream)
+  (:dbg stream)
   (loop with dot
         for char = (p-peek-char t stream)
         until (char= char #\))
@@ -249,7 +283,9 @@
         else
         collect (parse-lisp-code stream) into result
         and when dot do (error "Dot in the middle.")
-        finally (return (append result dot))))
+        finally
+        (p-read-char stream)
+        (return (append result dot))))
 
 (define-reader-macro-parser (#\') (stream)
   (list 'quote (parse-lisp-code stream)))
@@ -277,3 +313,10 @@
                  (return))
                 (t
                  (write-char char string))))))
+;;;
+
+(define-dispatching-char-parser (#\# :terminating nil))
+
+(define-dispatching-macro-parser (#\# #\') (parameter stream)
+  (declare (ignore parameter))
+  (make-p-function :name (parse-lisp-code stream)))
