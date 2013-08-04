@@ -9,6 +9,8 @@
   (string nil :type simple-string)
   (position 0 :type fixnum))
 
+(defvar *p-base* 10)
+
 (defun p-read-char (p-stream)
   (let ((string (p-stream-string p-stream))
         (position (p-stream-position p-stream)))
@@ -133,26 +135,41 @@
 (defun parse-token (stream)
   (let ((start (p-stream-position stream))
         (number 0)
-        char)
+        char
+        digit)
     (labels ((next-char ()
                (setf char (p-read-char stream)))
+             (digit-p ()
+               (setf digit (digit-char-p char *p-base*)))
              (unread ()
                (p-unread-char stream))
              (end-p ()
                (end-of-p-stream-p stream))
+             (change-base (number)
+               (if (= *p-base* 10)
+                   number
+                   (loop with result = 0
+                         for multiplier = 1 then (* multiplier 10)
+                         with remainder
+                         do
+                         (setf (values number remainder) (truncate number *p-base*))
+                         (incf result (* remainder multiplier))
+                         when (zerop number)
+                         return result)))
              (read-float ()
-               (+ number
+               (+ (change-base number)
                   (setf number 0)
-                  (loop with decimal = 1
+                  (loop with *p-base* = 10
+                        with decimal = 1
                         until (end-p)
                         do
                         (next-char)
                         (cond ((terminating-char-p char)
                                (unread)
                                (loop-finish))
-                              ((digit-char-p char)
+                              ((digit-p)
                                (setf decimal (* decimal 10)
-                                     number (+ (* number 10) (digit-char-p char))))
+                                     number (+ (* number 10) digit)))
                               (t
                                (unread)
                                (read-symbol)))
@@ -173,8 +190,8 @@
                                (cond ((terminating-char-p char)
                                       (unread)
                                       (return number))
-                                     ((digit-char-p char)
-                                      (setf number (+ (* number 10) (digit-char-p char))))
+                                     ((digit-p)
+                                      (setf number (+ (* number *p-base*) digit)))
                                      (t
                                       (unread)
                                       (read-symbol)))
@@ -185,10 +202,13 @@
                      (cond ((terminating-char-p char)
                             (unread)
                             (return number))
-                           ((digit-char-p char)
-                            (setf number (+ (* number 10) (digit-char-p char))))
+                           ((digit-p)
+                            (setf number (+ (* number *p-base*) digit)))
                            ((char= char #\.)
-                            (return (read-float)))
+                            (if (or (end-p)
+                                    (terminating-char-p (p-peek-char nil stream)))
+                                (return (change-base number))
+                                (return (read-float))))
                            ((char= char #\/)
                             (return (read-ratio)))
                            (t
@@ -261,7 +281,7 @@
         (#\. (read-float))
         (t
          (unread)
-         (if (digit-char-p char)
+         (if (digit-p)
              (read-number)
              (read-symbol)))))))
 
@@ -320,3 +340,25 @@
 (define-dispatching-macro-parser (#\# #\') (parameter stream)
   (declare (ignore parameter))
   (make-p-function :name (parse-lisp-code stream)))
+
+;;;
+
+(define-dispatching-macro-parser (#\# #\b) (parameter stream)
+  (declare (ignore parameter))
+  (let ((*p-base* 2))
+    (parse-lisp-code stream)))
+
+(define-dispatching-macro-parser (#\# #\o) (parameter stream)
+  (declare (ignore parameter))
+  (let ((*p-base* 8))
+    (parse-lisp-code stream)))
+
+(define-dispatching-macro-parser (#\# #\x) (parameter stream)
+  (declare (ignore parameter))
+  (let ((*p-base* 16))
+    (parse-lisp-code stream)))
+
+(define-dispatching-macro-parser (#\# #\r) (*p-base* stream)
+  (parse-lisp-code stream))
+
+;;;
