@@ -66,7 +66,9 @@
                    :accessor debugger-queue)
    (query-stream :initarg :query-stream
                  :initform nil
-                 :accessor query-stream))
+                 :accessor query-stream)
+   (arglist-display :initform nil
+                    :accessor arglist-display))
   (:metaclass qt-class)
   (:qt-superclass "QDialog")
   (:slots
@@ -76,7 +78,8 @@
    ("insertResults()" insert-results)
    ("invokeDebugger()" start-debugger)
    ("makeInputVisible(QRectF)" make-input-visible)
-   ("queryInput()" query-input))
+   ("queryInput()" query-input)
+   ("displayArglist()" display-arglist))
   (:signals ("insertResults()")
             ("invokeDebugger()")
             ("queryInput()"))
@@ -88,10 +91,13 @@
          (view (#_new QGraphicsView scene window))
          (input (make-instance 'repl-input))
          (package-indicator (make-instance 'package-indicator))
-         (timer (#_new QTimer window)))
-    (add-widgets vbox view)
+         (timer (#_new QTimer window))
+         (status-bar (#_new QStatusBar))
+         (arglist-display (#_new QLabel)))
+    (add-widgets vbox view status-bar)
     (#_setAlignment view (enum-or (#_Qt::AlignLeft) (#_Qt::AlignTop)))
     (#_setItemIndexMethod scene (#_QGraphicsScene::NoIndex))
+    (#_addPermanentWidget status-bar arglist-display 1)
     (if (and *repl-channel*
              (channel-alive-p *repl-channel*))
         (flush-channel *repl-channel*)
@@ -110,7 +116,8 @@
           (query-stream window)
           (make-two-way-stream
            (make-instance 'repl-input-stream :window window)
-           (make-instance 'repl-output-stream :window window)))
+           (make-instance 'repl-output-stream :window window))
+          (arglist-display window) arglist-display)
     (update-input window)
     (#_addItem scene input)
     (#_addItem scene package-indicator)
@@ -119,6 +126,8 @@
              window "evaluate()")
     (connect input "history(bool)"
              window "history(bool)")
+    (connect (#_document input) "contentsChanged()"
+             window "displayArglist()")
     (connect scene "sceneRectChanged(QRectF)"
              window "makeInputVisible(QRectF)")
     (connect window "insertResults()"
@@ -434,3 +443,9 @@
       (let ((cursor (#_textCursor input)))
         (#_movePosition cursor (#_QTextCursor::End))
         (#_setTextCursor input cursor)))))
+
+(defun display-arglist (window)
+  (with-slots (input arglist-display) window
+    (let* ((parse (ignore-errors (parse-lisp-string (#_toPlainText input))))
+           (arglist (and parse (form-arglist parse))))
+      (#_setText arglist-display (or arglist "")))))

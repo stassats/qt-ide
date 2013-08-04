@@ -127,7 +127,13 @@
 (defstruct p-pathname
   (namestring nil :type simple-string))
 
-;;; 
+(defun resolve-p-symbol (p-symbol)
+  (let ((package (find-package (p-symbol-package p-symbol))))
+    (and package
+         (multiple-value-bind (symbol status) (find-symbol (p-symbol-name p-symbol) package)
+           (and status
+                symbol)))))
+;;;
 
 (defun parse-lisp-string (string)
   (let ((*p-base* *read-base*)
