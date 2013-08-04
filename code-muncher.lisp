@@ -119,6 +119,9 @@
 (defstruct p-function
   (name nil :type (or p-symbol symbol cons)))
 
+(defstruct p-read-eval
+  form)
+
 ;;; 
 
 (defun parse-lisp-string (string)
@@ -426,3 +429,27 @@
     (when length
       (fill vector (svref vector (1- list-length)) :start list-length))
     vector))
+
+(define-dispatching-macro-parser (#\# #\.) (parameter stream)
+  (declare (ignore parameter))
+  (make-p-read-eval :form (parse-lisp-code stream)))
+
+(define-dispatching-macro-parser (#\# #\*) (length stream)
+  (flet ((bit-length ()
+           (let* ((start (p-stream-position stream))
+                  (string (p-stream-string stream))
+                  (end (position-if (lambda (x) (char/= x #\1 #\0))
+                                    string
+                                    :start start)))
+             (if (or (not end)
+                     (terminating-char-p (aref string end)))
+                 (- (or end (length string))
+                    start)
+                 (error "Bad #*")))))
+    (let* ((bit-length (bit-length))
+           (vector (make-array (or length bit-length) :element-type 'bit)))
+      (loop for i below bit-length
+            do (setf (sbit vector i) (digit-char-p (p-read-char stream))))
+      (when length
+        (fill vector (sbit vector (1- bit-length)) :start bit-length))
+      vector)))
