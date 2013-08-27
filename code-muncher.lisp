@@ -14,12 +14,13 @@
 (defvar *p-package* nil)
 (defvar *p-stream*)
 (defvar *no-p-wrappers* nil)
+(defvar *end-of-file* (gensym "EOF"))
 
 (defun p-read-char (p-stream)
   (let ((string (p-stream-string p-stream))
         (position (p-stream-position p-stream)))
     (cond ((end-of-p-stream-p p-stream)
-           (error 'end-of-file))
+           *end-of-file*)
           (t
            (prog1 (char string position)
              (setf (p-stream-position p-stream) (1+ position)))))))
@@ -34,13 +35,15 @@
   (let ((string (p-stream-string p-stream))
         (position (p-stream-position p-stream)))
     (cond (peek-type
-           (let ((non-whitespace (position-if-not #'whitespace-char-p string :start position)))
-             (unless non-whitespace
-               (error 'end-of-file))
-             (setf (p-stream-position p-stream) non-whitespace)
-             (char string non-whitespace)))
+           (let ((non-whitespace (position-if-not #'whitespace-char-p
+                                                  string :start position)))
+             (cond (non-whitespace
+                    (setf (p-stream-position p-stream) non-whitespace)
+                    (char string non-whitespace))
+                   (t
+                    *end-of-file*))))
           ((end-of-p-stream-p p-stream)
-           (error 'end-of-file))
+           *end-of-file*)
           (t
            (char string position)))))
 
@@ -100,7 +103,7 @@
 
 (defun invoke-reader-macro (reader-macro stream)
   (if (functionp reader-macro)
-      (funcall reader-macro stream)
+      (funcall reader-macro (1- (p-stream-position stream)) stream)
       (invoke-dispatching-reader-macro reader-macro stream)))
 
 (defmacro define-dispatching-macro-parser ((dispatch-char char) lambda-list &body body)
@@ -116,7 +119,8 @@
 (defstruct (p
             (:constructor nil))
   (start nil :type unsigned-byte)
-  (end (p-stream-position *p-stream*) :type unsigned-byte))
+  (end (p-stream-position *p-stream*) :type unsigned-byte)
+  error)
 
 (defstruct (p-symbol
             (:include p))
@@ -157,10 +161,11 @@
   (items nil :type list))
 
 (defun make-p-list (&key start (end (p-stream-position *p-stream*))
-                         items)
+                         error items)
   (if *no-p-wrappers*
       items
-      (%make-p-list :start start :end end :items items)))
+      (%make-p-list :start start :end end :items items
+                    :error error)))
 
 (defstruct (p-quote
             (:include p))
@@ -172,14 +177,18 @@
   (value nil :type string))
 
 (defun make-p-string (&key start (end (p-stream-position *p-stream*))
-                           value)
+                           error value)
   (if *no-p-wrappers*
       value
-      (%make-p-string :start start :end end :value value)))
+      (%make-p-string :start start :end end :value value
+                      :error error)))
 
 (defstruct (p-vector
             (:include p))
   (value nil :type vector))
+
+(defstruct (p-illegal
+            (:include p)))
 
 (defun resolve-p-symbol (p-symbol)
   (let ((package (find-package (p-symbol-package p-symbol))))
@@ -428,44 +437,50 @@
 
 ;;;
 
-(define-reader-macro-parser (#\)) (stream)
+(define-reader-macro-parser (#\)) (start stream)
   (declare (ignore stream))
-  (error ") encountered"))
+  (make-p-illegal :start start
+                  :error "Unmatched )"))
 
-(define-reader-macro-parser (#\() (stream)
-  (loop with dot
-        with start = (1- (p-stream-position stream))
-        for char = (p-peek-char t stream)
-        until (char= char #\))
-        if (char= char #\.)
-        do
-        (p-read-char stream)
-        (setf dot (parse-lisp-code stream))
-        else
-        collect (parse-lisp-code stream) into result
-        and when dot do (error "Dot in the middle.")
-        finally
-        (p-read-char stream)
-        (return (make-p-list :start start
-                             :items (append result dot)))))
+(define-reader-macro-parser (#\() (start stream)
+  (let* (dot
+         error
+         (result
+           (loop for char = (p-peek-char t stream)
+                 when (eq char *end-of-file*)
+                 do (setf error "End of stream.")
+                    (loop-finish)
+                 until (char= char #\))
+                 when dot
+                 do (setf error "Dot in the middle.")
+                 and collect dot
+                 if (char= char #\.)
+                 do
+                 (p-read-char stream)
+                 (setf dot (parse-lisp-code stream))
+                 else
+                 collect (parse-lisp-code stream)
+                 finally (p-read-char stream))))
+    (make-p-list :start start
+                 :items (append result dot)
+                 :error error)))
 
-(define-reader-macro-parser (#\') (stream)
-  (make-p-quote :start (1- (p-stream-position stream))
+(define-reader-macro-parser (#\') (start stream)
+  (make-p-quote :start start
                 :object (parse-lisp-code stream)))
 
-(define-reader-macro-parser (#\;) (stream)
-  (let ((start (p-stream-position stream))
-        (end (loop when (end-of-p-stream-p stream)
+(define-reader-macro-parser (#\;) (start stream)
+  (let ((end (loop when (end-of-p-stream-p stream)
                    return (p-stream-position stream)
                    when (char= (p-read-char stream) #\Newline)
                    return (1- (p-stream-position stream)))))
-    (make-p-comment :start (1- start)
+    (make-p-comment :start start
                     :end end ;;; FIXEM: should the newline be included or not
                     :text (subseq (p-stream-string stream) start end))))
 
-(define-reader-macro-parser (#\") (stream)
+(define-reader-macro-parser (#\") (start stream)
   (make-p-string
-   :start (1- (p-stream-position stream))
+   :start start
    :value
    (with-output-to-string (string)
      (loop with escaping
@@ -523,7 +538,8 @@
              (realp (cadr cons)))
         (make-p-number :start start
                        :value (complex (car cons) (cadr cons)))
-        (error "bad complex: ~a" cons))))
+        (make-p-illegal :start start
+                        :error (format nil "bad complex: ~a" cons)))))
 
 (define-dispatching-macro-parser (#\# #\() (start length stream)
   (p-unread-char stream)
