@@ -448,7 +448,7 @@
          (result
            (loop for char = (p-peek-char t stream)
                  when (eq char *end-of-file*)
-                 do (setf error "End of stream.")
+                 do (setf error *end-of-file*)
                     (loop-finish)
                  until (char= char #\))
                  when dot

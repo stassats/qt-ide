@@ -7,7 +7,8 @@
 (named-readtables:in-readtable :qt)
 
 (defvar *default-qfont* nil)
-(defvar *default-font* "DejaVu Sans Mono 13")
+(defvar *default-font* "DejaVu Sans Mono")
+(defvar *default-font-size* 12)
 
 (defclass window (qt-ui:window)
   ()
@@ -16,5 +17,5 @@
 (defmethod initialize-instance :before ((window window) &key)
   (ensure-qapp)
   (unless *default-qfont*
-    (setf *default-qfont* (#_new QFont *default-font*))
+    (setf *default-qfont* (#_new QFont *default-font* *default-font-size*))
     (#_setFixedPitch *default-qfont* t)))

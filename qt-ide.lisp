@@ -6,9 +6,6 @@
 (in-package #:qt-ide)
 (named-readtables:in-readtable :qt)
 
-(defvar *default-qfont* nil)
-(defvar *default-font* "DejaVu Sans Mono 13")
-
 (defun ide ()
   (let ((*main-window* (make-instance 'main-window)))
     (unwind-protect

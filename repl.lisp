@@ -97,6 +97,7 @@
     (add-widgets vbox view status-bar)
     (#_setAlignment view (enum-or (#_Qt::AlignLeft) (#_Qt::AlignTop)))
     (#_setItemIndexMethod scene (#_QGraphicsScene::NoIndex))
+    (#_setFont arglist-display *default-qfont*)
     (#_addPermanentWidget status-bar arglist-display 1)
     (if (and *repl-channel*
              (channel-alive-p *repl-channel*))
@@ -126,7 +127,7 @@
              window "evaluate()")
     (connect input "history(bool)"
              window "history(bool)")
-    (connect (#_document input) "contentsChanged()"
+    (connect input "arglistChanged()"
              window "displayArglist()")
     (connect scene "sceneRectChanged(QRectF)"
              window "makeInputVisible(QRectF)")
@@ -209,10 +210,12 @@
                   :accessor current-input))
   (:metaclass qt-class)
   (:qt-superclass "QGraphicsTextItem")
-  (:override ("keyPressEvent" key-press-event))
+  (:override ("keyPressEvent" key-press-event)
+             ("mousePressEvent" mouse-press-event))
   (:signals
    ("returnPressed()")
-   ("history(bool)"))
+   ("history(bool)")
+   ("arglistChanged()"))
   (:default-initargs :editable t))
 
 (defmethod key-press-event ((widget repl-input) event)
@@ -229,7 +232,12 @@
            (emit-signal widget "history(bool)" nil))
           (t
            (setf (history-index widget) -1)
-           (stop-overriding)))))
+           (call-next-qmethod)))
+    (emit-signal widget "arglistChanged()")))
+
+(defmethod mouse-press-event ((widget repl-input) event)
+  (call-next-qmethod)
+  (emit-signal widget "arglistChanged()"))
 
 ;;;
 
@@ -366,12 +374,13 @@
       (let* ((output (output repl))
              (cursor (cursor output))
              (string (concatenate-output-queue (queue output-stream)))
-             (height (#_height (#_size (#_document output)))))
+             (document (#_document output))
+             (height (#_height (#_size document))))
         (#_movePosition cursor (#_QTextCursor::End))
         (#_insertText cursor string)
         (cond ((used output)
                (adjust-items-after-output repl
-                                          (- (#_height (#_size (#_document output)))
+                                          (- (#_height (#_size document))
                                              height)
                                           t))
               (t
@@ -447,5 +456,7 @@
 (defun display-arglist (window)
   (with-slots (input arglist-display) window
     (let* ((parse (ignore-errors (parse-lisp-string (#_toPlainText input))))
-           (arglist (and parse (form-arglist parse))))
+           (position (#_position (#_textCursor input)))
+           (arglist (and parse
+                         (form-arglist position parse))))
       (#_setText arglist-display (or arglist "")))))
