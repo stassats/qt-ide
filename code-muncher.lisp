@@ -12,6 +12,8 @@
 (defvar *p-base* 10)
 (defvar *p-float-format* 'single-float)
 (defvar *p-package* nil)
+(defvar *p-stream*)
+(defvar *no-p-wrappers* nil)
 
 (defun p-read-char (p-stream)
   (let ((string (p-stream-string p-stream))
@@ -81,19 +83,20 @@
             ',name)))
 
 (defun invoke-dispatching-reader-macro (table stream)
-  (loop for char = (p-read-char stream)
-        for digit = (digit-char-p char)
-        for number = digit then (if digit
-                                    (+ (* number 10) digit)
-                                    number)
-        while digit
-        finally
-        (let* ((code (char-code (char-downcase char)))
-               (function (and (array-in-bounds-p table code)
-                              (svref table code))))
-          (if function
-              (return (funcall function number stream))
-              (error "No dispatch macro for ~c." char)))))
+  (let ((start (1- (p-stream-position stream))))
+    (loop for char = (p-read-char stream)
+          for digit = (digit-char-p char)
+          for number = digit then (if digit
+                                      (+ (* number 10) digit)
+                                      number)
+          while digit
+          finally
+          (let* ((code (char-code (char-downcase char)))
+                 (function (and (array-in-bounds-p table code)
+                                (svref table code))))
+            (if function
+                (return (funcall function start number stream))
+                (error "No dispatch macro for ~c." char))))))
 
 (defun invoke-reader-macro (reader-macro stream)
   (if (functionp reader-macro)
@@ -110,22 +113,73 @@
             ',name)))
 ;;;
 
-(defstruct p-symbol
+(defstruct (p
+            (:constructor nil))
+  (start nil :type unsigned-byte)
+  (end (p-stream-position *p-stream*) :type unsigned-byte))
+
+(defstruct (p-symbol
+            (:include p))
   (name nil :type simple-string)
   (package nil :type (or package string null))
   (external nil :type boolean))
 
-(defstruct p-comment
+(defstruct (p-comment
+            (:include p))
   (text nil :type simple-string))
 
-(defstruct p-function
+(defstruct (p-function
+            (:include p))
   (name nil :type (or p-symbol symbol cons)))
 
-(defstruct p-read-eval
+(defstruct (p-read-eval
+            (:include p))
   form)
 
-(defstruct p-pathname
+(defstruct (p-pathname
+            (:include p))
   (namestring nil :type simple-string))
+
+(defstruct (p-number
+            (:include p)
+            (:constructor %make-p-number))
+  (value nil :type number))
+
+(defun make-p-number (&key start (end (p-stream-position *p-stream*))
+                           value)
+  (if *no-p-wrappers*
+      value
+      (%make-p-number :start start :end end :value value)))
+
+(defstruct (p-list
+            (:include p)
+            (:constructor %make-p-list))
+  (items nil :type list))
+
+(defun make-p-list (&key start (end (p-stream-position *p-stream*))
+                         items)
+  (if *no-p-wrappers*
+      items
+      (%make-p-list :start start :end end :items items)))
+
+(defstruct (p-quote
+            (:include p))
+  object)
+
+(defstruct (p-string
+            (:include p)
+            (:constructor %make-p-string))
+  (value nil :type string))
+
+(defun make-p-string (&key start (end (p-stream-position *p-stream*))
+                           value)
+  (if *no-p-wrappers*
+      value
+      (%make-p-string :start start :end end :value value)))
+
+(defstruct (p-vector
+            (:include p))
+  (value nil :type vector))
 
 (defun resolve-p-symbol (p-symbol)
   (let ((package (find-package (p-symbol-package p-symbol))))
@@ -143,7 +197,8 @@
 
 (defun parse-lisp-code (stream)
   (let* ((char (p-peek-char t stream))
-         (rm-parser (get-reader-macro-parser char nil)))
+         (rm-parser (get-reader-macro-parser char nil))
+         (*p-stream* stream))
     (cond (rm-parser
            (p-read-char stream)
            (invoke-reader-macro rm-parser stream))
@@ -161,7 +216,7 @@
                   :test #'char-equal))
       *p-float-format*))
 
-(defun parse-token (stream)
+(defun parse-token (stream &optional symbol-p)
   (let ((start (p-stream-position stream))
         (number 0)
         char
@@ -318,7 +373,8 @@
                         (setf package (subseq string 0 colons))))
                  (make-p-symbol :name symbol-name
                                 :package package
-                                :external external)))
+                                :external external
+                                :start start)))
              (convert-case (char)
                (case (readtable-case *readtable*)
                  (:upcase (char-upcase char))
@@ -353,15 +409,22 @@
                                  (return))
                                 (t
                                  (write-char (convert-case char) str)))))))))
-      (case (next-char)
-        (#\- (read-negative-number))
-        (#\+ (read-number))
-        (#\. (read-float))
-        (t
-         (unread)
-         (if (digit-p)
-             (read-number)
-             (read-symbol)))))))
+      (if symbol-p
+          (read-symbol)
+          (let ((number
+                  (case (next-char)
+                    (#\- (read-negative-number))
+                    (#\+ (read-number))
+                    (#\. (read-float))
+                    (t
+                     (unread)
+                     (if (digit-p)
+                         (read-number)
+                         (read-symbol))))))
+            ;; Only numbers are left, read-symbols does
+            ;; return-from parse-token
+            (make-p-number :start start
+                           :value number))))))
 
 ;;;
 
@@ -371,6 +434,7 @@
 
 (define-reader-macro-parser (#\() (stream)
   (loop with dot
+        with start = (1- (p-stream-position stream))
         for char = (p-peek-char t stream)
         until (char= char #\))
         if (char= char #\.)
@@ -382,88 +446,102 @@
         and when dot do (error "Dot in the middle.")
         finally
         (p-read-char stream)
-        (return (append result dot))))
+        (return (make-p-list :start start
+                             :items (append result dot)))))
 
 (define-reader-macro-parser (#\') (stream)
-  (list 'quote (parse-lisp-code stream)))
+  (make-p-quote :start (1- (p-stream-position stream))
+                :object (parse-lisp-code stream)))
 
 (define-reader-macro-parser (#\;) (stream)
-  (let ((start (p-stream-position stream)))
-    (flet ((make-comment (end)
-             (make-p-comment :text (subseq (p-stream-string stream) start end))))
-      (loop when (end-of-p-stream-p stream)
-            return (make-comment (p-stream-position stream))
-            when (char= (p-read-char stream) #\Newline)
-            return (make-comment (1- (p-stream-position stream)))))))
+  (let ((start (p-stream-position stream))
+        (end (loop when (end-of-p-stream-p stream)
+                   return (p-stream-position stream)
+                   when (char= (p-read-char stream) #\Newline)
+                   return (1- (p-stream-position stream)))))
+    (make-p-comment :start (1- start)
+                    :end end ;;; FIXEM: should the newline be included or not
+                    :text (subseq (p-stream-string stream) start end))))
 
 (define-reader-macro-parser (#\") (stream)
-  (with-output-to-string (string)
-    (loop with escaping
-          for char = (p-read-char stream)
-          do
-          (cond (escaping
-                 (write-char char string)
-                 (setf escaping nil))
-                ((char= char #\\)
-                 (setf escaping t))
-                ((char= char #\")
-                 (return))
-                (t
-                 (write-char char string))))))
+  (make-p-string
+   :start (1- (p-stream-position stream))
+   :value
+   (with-output-to-string (string)
+     (loop with escaping
+           for char = (p-read-char stream)
+           do
+           (cond (escaping
+                  (write-char char string)
+                  (setf escaping nil))
+                 ((char= char #\\)
+                  (setf escaping t))
+                 ((char= char #\")
+                  (return))
+                 (t
+                  (write-char char string)))))))
 ;;;
 
 (define-dispatching-char-parser (#\# :terminating nil))
 
-(define-dispatching-macro-parser (#\# #\') (parameter stream)
+(define-dispatching-macro-parser (#\# #\') (start parameter stream)
   (declare (ignore parameter))
-  (make-p-function :name (parse-lisp-code stream)))
+  (make-p-function :start start
+                   :name (parse-lisp-code stream)))
 
 ;;;
 
-(define-dispatching-macro-parser (#\# #\b) (parameter stream)
-  (declare (ignore parameter))
-  (let ((*p-base* 2))
-    (parse-lisp-code stream)))
+(defun parse-number-in-base (start *p-base* stream)
+  (let ((number (parse-lisp-code stream)))
+    (setf (p-start number) start)
+    number))
 
-(define-dispatching-macro-parser (#\# #\o) (parameter stream)
+(define-dispatching-macro-parser (#\# #\b) (start parameter stream)
   (declare (ignore parameter))
-  (let ((*p-base* 8))
-    (parse-lisp-code stream)))
+  (parse-number-in-base start 2 stream))
 
-(define-dispatching-macro-parser (#\# #\x) (parameter stream)
+
+(define-dispatching-macro-parser (#\# #\o) (start parameter stream)
   (declare (ignore parameter))
-  (let ((*p-base* 16))
-    (parse-lisp-code stream)))
+  (parse-number-in-base start 8 stream))
 
-(define-dispatching-macro-parser (#\# #\r) (*p-base* stream)
-  (parse-lisp-code stream))
+(define-dispatching-macro-parser (#\# #\x) (start parameter stream)
+  (declare (ignore parameter))
+  (parse-number-in-base start 16 stream))
+
+(define-dispatching-macro-parser (#\# #\r) (start base stream)
+  (parse-number-in-base start base stream))
 
 ;;;
 
-(define-dispatching-macro-parser (#\# #\c) (parameter stream)
-  (declare (ignore parameter) )
-  (let ((cons (parse-lisp-code stream)))
+(define-dispatching-macro-parser (#\# #\c) (start parameter stream)
+  (declare (ignore parameter))
+  (let* ((cons (let ((*no-p-wrappers* t))
+                 (parse-lisp-code stream))))
     (if (and (consp cons)
              (realp (car cons))
              (realp (cadr cons)))
-        (complex (car cons) (cadr cons))
+        (make-p-number :start start
+                       :value (complex (car cons) (cadr cons)))
         (error "bad complex: ~a" cons))))
 
-(define-dispatching-macro-parser (#\# #\() (length stream)
+(define-dispatching-macro-parser (#\# #\() (start length stream)
   (p-unread-char stream)
-  (let* ((list (parse-lisp-code stream))
+  (let* ((list (p-list-items (parse-lisp-code stream)))
          (list-length (length list))
-         (vector (make-array (or length list-length ))))
+         (vector (make-array (or length list-length))))
     (replace vector list)
     (when length
       (fill vector (svref vector (1- list-length)) :start list-length))
-    vector))
+    (make-p-vector :start start
+                   :value vector)))
 
-(define-dispatching-macro-parser (#\# #\.) (parameter stream)
+(define-dispatching-macro-parser (#\# #\.) (start parameter stream)
   (declare (ignore parameter))
-  (make-p-read-eval :form (parse-lisp-code stream)))
+  (make-p-read-eval :start start
+                    :form (parse-lisp-code stream)))
 
-(define-dispatching-macro-parser (#\# #\*) (length stream)
+(define-dispatching-macro-parser (#\# #\*) (start length stream)
   (flet ((bit-length ()
            (let* ((start (p-stream-position stream))
                   (string (p-stream-string stream))
@@ -481,13 +559,18 @@
             do (setf (sbit vector i) (digit-char-p (p-read-char stream))))
       (when length
         (fill vector (sbit vector (1- bit-length)) :start bit-length))
-      vector)))
+      (make-p-vector :start start
+                     :value vector))))
 
-(define-dispatching-macro-parser (#\# #\:) (parameter stream)
+(define-dispatching-macro-parser (#\# #\:) (start parameter stream)
   (declare (ignore parameter))
-  (let (*p-package*)
-    (parse-lisp-code stream)))
+  (let* (*p-package*
+         (symbol (parse-token stream t)))
+    (setf (p-start symbol) start)
+    symbol))
 
-(define-dispatching-macro-parser (#\# #\p) (parameter stream)
+(define-dispatching-macro-parser (#\# #\p) (start parameter stream)
   (declare (ignore parameter))
-  (make-p-pathname :namestring (parse-lisp-code stream)))
+  (let ((*no-p-wrappers* t))
+   (make-p-pathname :start start
+                    :namestring (parse-lisp-code stream))))

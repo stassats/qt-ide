@@ -10,6 +10,7 @@
                (:file "channel")
                (:file "share")
                (:file "code-muncher")
+               (:file "arglists")
                (:file "qt-ide")
                (:file "debugger")
                (:file "streams")
