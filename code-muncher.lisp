@@ -88,7 +88,9 @@
 (defun invoke-dispatching-reader-macro (table stream)
   (let ((start (1- (p-stream-position stream))))
     (loop for char = (p-read-char stream)
-          for digit = (digit-char-p char)
+          for digit = (if (eq char *end-of-file*)
+                          (return *end-of-file*)
+                          (digit-char-p char))
           for number = digit then (if digit
                                       (+ (* number 10) digit)
                                       number)
@@ -191,12 +193,19 @@
 (defstruct (p-illegal
             (:include p)))
 
+(defstruct (p-conditional
+            (:include p))
+  condition
+  code)
+
 (defun resolve-p-symbol (p-symbol)
-  (let ((package (find-package (p-symbol-package p-symbol))))
-    (and package
-         (multiple-value-bind (symbol status) (find-symbol (p-symbol-name p-symbol) package)
-           (and status
-                symbol)))))
+  (if (symbolp p-symbol)
+      p-symbol
+      (let ((package (find-package (p-symbol-package p-symbol))))
+        (and package
+             (multiple-value-bind (symbol status) (find-symbol (p-symbol-name p-symbol) package)
+               (and status
+                    symbol))))))
 
 (defun p-nth (n p-list)
   (nth n (p-list-items p-list)))
@@ -206,31 +215,53 @@
        (p-symbol-p (p-nth 0 p-list))
        (resolve-p-symbol (car (p-list-items p-list)))))
 
+(defun eval-conditional (cond)
+  (labels ((eval-cond (cond)
+             (typecase cond
+               (cons
+                (case (resolve-p-symbol (car cond))
+                  (:not
+                   (and (consp (cdr cond))
+                        (not (eval-cond (cadr cond)))))
+                  (:and
+                   (and (listp (cdr cond))
+                        (loop for (x . rest) on (cdr cond)
+                              always (eval-cond x)
+                              while (listp rest))))
+                  (:or
+                   (and (consp (cdr cond))
+                        (loop for (x . rest) on (cdr cond)
+                              thereis (and (eval-cond x) t)
+                              while (listp rest))))))
+               (p-symbol
+                (and (member (resolve-p-symbol cond) *features*)
+                     t)))))
+    (eval-cond (p-conditional-condition cond))))
+
 ;;;
 
 (defun parse-lisp-string (string)
-  (let ((*p-base* *read-base*)
-        (*p-float-format* *read-default-float-format*)
-        (*p-package* *package*))
-    (parse-lisp-code (make-p-stream :string string))))
-
-(defun parse-lisp-string-all (string)
-  (let ((*p-base* *read-base*)
-        (*p-float-format* *read-default-float-format*)
-        (*p-package* *package*))
-    (parse-lisp-code-all (make-p-stream :string string))))
-
-(defun parse-lisp-code-all (stream)
-  (loop until (eql (p-peek-char t stream) *end-of-file*)
-        collect (parse-lisp-code stream)))
+  (let* ((*p-base* *read-base*)
+         (*p-float-format* *read-default-float-format*)
+         (*p-package* *package*)
+         (stream (make-p-stream :string string))
+         (*p-stream* stream))
+    (parse-lisp-code stream)))
 
 (defun parse-lisp-code (stream)
+  (loop for code = (parse-lisp-form stream)
+        until (eq code *end-of-file*)
+        if (consp code)
+        nconc code
+        else
+        collect code))
+
+(defun parse-lisp-form (stream)
   (let* ((char (p-peek-char t stream))
          (rm-parser (when (characterp char)
-                      (get-reader-macro-parser char nil)))
-         (*p-stream* stream))
+                      (get-reader-macro-parser char nil))))
     (cond ((eq char *end-of-file*)
-           char)
+           *end-of-file*)
           (rm-parser
            (p-read-char stream)
            (invoke-reader-macro rm-parser stream))
@@ -480,9 +511,9 @@
                  if (char= char #\.)
                  do
                  (p-read-char stream)
-                 (setf dot (parse-lisp-code stream))
+                 (setf dot (parse-lisp-form stream))
                  else
-                 collect (parse-lisp-code stream)
+                 collect (parse-lisp-form stream)
                  finally (p-read-char stream))))
     (make-p-list :start start
                  :items (append result dot)
@@ -490,7 +521,7 @@
 
 (define-reader-macro-parser (#\') (start stream)
   (make-p-quote :start start
-                :object (parse-lisp-code stream)))
+                :object (parse-lisp-form stream)))
 
 (define-reader-macro-parser (#\;) (start stream)
   (let ((end (loop when (end-of-p-stream-p stream)
@@ -530,12 +561,12 @@
 (define-dispatching-macro-parser (#\# #\') (start parameter stream)
   (declare (ignore parameter))
   (make-p-function :start start
-                   :name (parse-lisp-code stream)))
+                   :name (parse-lisp-form stream)))
 
 ;;;
 
 (defun parse-number-in-base (start *p-base* stream)
-  (let ((number (parse-lisp-code stream)))
+  (let ((number (parse-lisp-form stream)))
     (setf (p-start number) start)
     number))
 
@@ -560,7 +591,7 @@
 (define-dispatching-macro-parser (#\# #\c) (start parameter stream)
   (declare (ignore parameter))
   (let* ((cons (let ((*no-p-wrappers* t))
-                 (parse-lisp-code stream))))
+                 (parse-lisp-form stream))))
     (if (and (consp cons)
              (realp (car cons))
              (realp (cadr cons)))
@@ -571,7 +602,7 @@
 
 (define-dispatching-macro-parser (#\# #\() (start length stream)
   (p-unread-char stream)
-  (let* ((list (p-list-items (parse-lisp-code stream)))
+  (let* ((list (p-list-items (parse-lisp-form stream)))
          (list-length (length list))
          (vector (make-array (or length list-length))))
     (replace vector list)
@@ -583,7 +614,7 @@
 (define-dispatching-macro-parser (#\# #\.) (start parameter stream)
   (declare (ignore parameter))
   (make-p-read-eval :start start
-                    :form (parse-lisp-code stream)))
+                    :form (parse-lisp-form stream)))
 
 (define-dispatching-macro-parser (#\# #\*) (start length stream)
   (flet ((bit-length ()
@@ -617,4 +648,37 @@
   (declare (ignore parameter))
   (let ((*no-p-wrappers* t))
    (make-p-pathname :start start
-                    :namestring (parse-lisp-code stream))))
+                    :namestring (parse-lisp-form stream))))
+
+(defun parse-conditional (start stream &optional negate)
+  (let ((condition (let ((*p-package* (find-package 'keyword))
+                         (*no-p-wrappers* t))
+                     (parse-lisp-form stream)))
+        (end (p-stream-position *p-stream*)))
+    (loop for code = (parse-lisp-form stream)
+          until (eq code *end-of-file*)
+          if (p-conditional-p code)
+          collect code into after
+          else
+          collect code into protected
+          until (and (not (p-conditional-p code))
+                     (not (p-comment-p code)))
+          finally
+          (let ((cond (make-p-conditional :start start
+                                          :end end
+                                          :condition (if negate
+                                                         `(:not ,condition)
+                                                         condition)
+                                          :code protected)))
+            (return
+              (if after
+                  (cons cond after)
+                  cond))))))
+
+(define-dispatching-macro-parser (#\# #\+) (start parameter stream)
+  (declare (ignore parameter))
+  (parse-conditional start stream))
+
+(define-dispatching-macro-parser (#\# #\-) (start parameter stream)
+  (declare (ignore parameter))
+  (parse-conditional start stream t))

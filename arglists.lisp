@@ -5,29 +5,32 @@
 
 (in-package #:qt-ide)
 
-(defun find-form-around-position (position form)
-  (flet ((inside (form)
-           (< (p-start form)
-              position
-              (if (eq (p-error form) *end-of-file*)
-                  (1+ (p-end form))
-                  (p-end form)))))
-    (cond ((not (inside form))
-           nil)
-          ((p-list-p form)
-           (or
-            (loop for (x . rest) on (p-list-items form)
-                  if (and (p-list-p x)
-                          (not (null (p-list-items x)))
-                          (find-form-around-position position x))
-                  return it
-                  while (consp rest))
-            form))
-          (t
-           form))))
+(defun find-form-around-position (position forms)
+  (labels ((inside (form)
+             (< (p-start form)
+                position
+                (if (eq (p-error form) *end-of-file*)
+                    (1+ (p-end form))
+                    (p-end form))))
+           (find-form (form)
+             (cond ((not (inside form))
+                    nil)
+                   ((p-list-p form)
+                    (or
+                     (loop for (x . rest) on (p-list-items form)
+                           if (and (p-list-p x)
+                                   (not (null (p-list-items x)))
+                                   (find-form-around-position position x))
+                           return it
+                           while (consp rest))
+                     form))
+                   (t
+                    form))))
+    (loop for form in forms
+          thereis (find-form form))))
 
-(defun form-arglist (position form)
-  (let* ((form (find-form-around-position position form))
+(defun form-arglist (position forms)
+  (let* ((form (find-form-around-position position forms))
          (list (and (p-list-p form)
                     (p-list-items form)))
          (symbol (and (consp list)

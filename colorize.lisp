@@ -22,7 +22,7 @@
 
 (defun colorize (text cursor)
   (init-colors)
-  (let ((code (parse-lisp-string-all text)))
+  (let ((code (parse-lisp-string text)))
     (#_select cursor (#_QTextCursor::Document))
     (#_setCharFormat cursor (#_new QTextCharFormat))
     (colorize-code code cursor)))
@@ -47,14 +47,22 @@
   (#_movePosition cursor
                   (#_QTextCursor::Right)
                   (#_QTextCursor::KeepAnchor)
-                  (- (p-end form)
-                     (p-start form))))
+                  (- (p-end form) (p-start form))))
 
 (defun colorize-form (form cursor color)
   (with-objects ((text-format (#_new QTextCharFormat)))
     (select-form form cursor)
     (#_setForeground text-format color)
     (#_setCharFormat cursor text-format)))
+
+(defun colorize-conditional (cond cursor)
+  (cond ((eval-conditional cond)
+         (colorize-code (p-conditional-code cond) cursor))
+        (t
+         (colorize-form cond cursor *comment-color*)
+         (loop for code in (p-conditional-code cond)
+               do
+               (colorize-form code cursor *comment-color*)))))
 
 (defun colorize-code (code cursor)
   (labels ((map-code (code)
@@ -68,6 +76,8 @@
                (p-string
                 (colorize-form code cursor *string-color*))
                (p-comment
-                (colorize-form code cursor *comment-color*)))))
+                (colorize-form code cursor *comment-color*))
+               (p-conditional
+                (colorize-conditional code cursor)))))
     (mapcar #'map-code code)))
 
