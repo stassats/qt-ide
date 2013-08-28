@@ -55,7 +55,8 @@
 (defvar *reader-macros-parsers*
   (make-array 255 :initial-element nil))
 
-(defmacro define-reader-macro-parser ((char &key (terminating t)) lambda-list &body body)
+(defmacro define-reader-macro-parser ((char &key (terminating t)) lambda-list
+                                      &body body)
   (let ((name (intern (format nil "~a-~a" 'reader-macro-parser char))))
     `(progn (defun ,name ,lambda-list
               ,@body)
@@ -80,7 +81,8 @@
 (defmacro define-dispatching-char-parser ((char &key (terminating t)))
   (let ((name (intern (format nil "~a-~a" 'reader-macro-parser char))))
     `(progn (setf (svref *reader-macros-parsers* ,(char-code char))
-                  (cons (or (car (svref *reader-macros-parsers* ,(char-code char)))
+                  (cons (or (car (svref *reader-macros-parsers*
+                                        ,(char-code char)))
                             (make-array 255 :initial-element nil))
                         ,terminating))
             ',name)))
@@ -102,18 +104,23 @@
             (if function
                 (return (funcall function start number stream))
                 (make-p-illegal :start start
-                                :error (format nil "No dispatch macro for ~c." char)))))))
+                                :error
+                                (format nil "No dispatch macro for ~c."
+                                        char)))))))
 
 (defun invoke-reader-macro (reader-macro stream)
   (if (functionp reader-macro)
       (funcall reader-macro (1- (p-stream-position stream)) stream)
       (invoke-dispatching-reader-macro reader-macro stream)))
 
-(defmacro define-dispatching-macro-parser ((dispatch-char char) lambda-list &body body)
-  (let ((name (intern (format nil "~a-~a~a" 'reader-macro-parser dispatch-char char))))
+(defmacro define-dispatching-macro-parser ((dispatch-char char) lambda-list
+                                           &body body)
+  (let ((name (intern (format nil "~a-~a~a"
+                              'reader-macro-parser dispatch-char char))))
     `(progn (defun ,name ,lambda-list
               ,@body)
-            (setf (svref (car (svref *reader-macros-parsers* ,(char-code dispatch-char)))
+            (setf (svref (car (svref *reader-macros-parsers*
+                                     ,(char-code dispatch-char)))
                          ,(char-code char))
                   #',name)
             ',name)))
@@ -207,7 +214,8 @@
       p-symbol
       (let ((package (find-package (p-symbol-package p-symbol))))
         (and package
-             (multiple-value-bind (symbol status) (find-symbol (p-symbol-name p-symbol) package)
+             (multiple-value-bind (symbol status)
+                 (find-symbol (p-symbol-name p-symbol) package)
                (and status
                     symbol))))))
 
@@ -414,7 +422,8 @@
                                       (unread)
                                       (return number))
                                      ((digit-p)
-                                      (setf number (+ (* number *p-base*) digit)))
+                                      (setf number
+                                            (+ (* number *p-base*) digit)))
                                      (t
                                       (unread)
                                       (read-symbol)))
@@ -450,7 +459,9 @@
              (create-symbol (string)
                (let* ((end (length string))
                       (keyword (char= (char string 0) #\:))
-                      (colons (position #\: string :start 1 :end end :from-end t))
+                      (colons (position #\: string :start 1
+                                                   :end end
+                                                   :from-end t))
                       external
                       package
                       symbol-name)
