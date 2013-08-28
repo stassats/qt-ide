@@ -371,7 +371,7 @@
                              (t
                               (unread)
                               (read-symbol)))
-                        
+
                        finally
                        (return (* multiple result)))))
              (make-float-with-exponent (divisor exponent)
@@ -396,7 +396,7 @@
                            (t
                             (unread)
                             (read-symbol)))
-                        
+
                      finally
                      (when (= divisor 1)
                        (error "Dot context error."))
@@ -704,3 +704,30 @@
                  :name (if (= (length name/char) 1)
                            (char name/char 0)
                            name/char))))
+
+(define-dispatching-macro-parser (#\# #\|) (start parameter stream)
+  (declare (ignore parameter))
+  (let* (error
+         (comment-start (p-stream-position stream))
+         (comment-end
+           (loop with opening = 1
+                 for char = (p-read-char stream)
+                 for next-char = (p-peek-char nil stream)
+                 when (eq next-char *end-of-file*)
+                 do (setf error *end-of-file*)
+                    (return)
+                 do
+                 (cond ((and (char= char #\|)
+                             (char= next-char #\#))
+                        (p-read-char stream)
+                        (decf opening))
+                       ((and (char= char #\#)
+                             (char= next-char #\|))
+                        (p-read-char stream)
+                        (incf opening)))
+                 when (zerop opening)
+                 return (- (p-stream-position stream) 2))))
+    (make-p-comment :start start
+                    :error error
+                    :text (subseq (p-stream-string stream)
+                                  comment-start comment-end))))
