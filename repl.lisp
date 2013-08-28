@@ -79,7 +79,7 @@
    ("invokeDebugger()" start-debugger)
    ("makeInputVisible(QRectF)" make-input-visible)
    ("queryInput()" query-input)
-   ("displayArglist()" display-arglist))
+   ("displayArglist()" display-repl-arglist))
   (:signals ("insertResults()")
             ("invokeDebugger()")
             ("queryInput()"))
@@ -453,10 +453,9 @@
         (#_movePosition cursor (#_QTextCursor::End))
         (#_setTextCursor input cursor)))))
 
-(defun display-arglist (window)
+(defun display-repl-arglist (window)
   (with-slots (input arglist-display) window
-    (let* ((parse (ignore-errors (parse-lisp-string (#_toPlainText input))))
-           (position (#_position (#_textCursor input)))
-           (arglist (and parse
-                         (form-arglist position parse))))
-      (#_setText arglist-display (or arglist "")))))
+    (let* ((parse (parse-lisp-string (#_toPlainText input))))
+      (when parse
+       (display-arglist parse (#_position (#_textCursor input))
+                        arglist-display)))))

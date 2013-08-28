@@ -20,12 +20,11 @@
         do (setf (symbol-value color)
                  (#_new QBrush (#_new QColor value)))))
 
-(defun colorize (text cursor)
+(defun colorize (code cursor)
   (init-colors)
-  (let ((code (parse-lisp-string text)))
-    (#_select cursor (#_QTextCursor::Document))
-    (#_setCharFormat cursor (#_new QTextCharFormat))
-    (colorize-code code cursor)))
+  (#_select cursor (#_QTextCursor::Document))
+  (#_setCharFormat cursor (#_new QTextCharFormat))
+  (colorize-code code cursor))
 
 ;;; 
 

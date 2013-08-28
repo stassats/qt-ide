@@ -13,21 +13,22 @@
                     (1+ (p-end form))
                     (p-end form))))
            (find-form (form)
-             (cond ((not (inside form))
+             (cond ((p-conditional-p form)
+                    (some #'find-form (p-conditional-code form)))
+                   ((not (inside form))
                     nil)
                    ((p-list-p form)
                     (or
                      (loop for (x . rest) on (p-list-items form)
                            if (and (p-list-p x)
                                    (not (null (p-list-items x)))
-                                   (find-form-around-position position x))
+                                   (find-form x))
                            return it
                            while (consp rest))
                      form))
                    (t
                     form))))
-    (loop for form in forms
-          thereis (find-form form))))
+    (some #'find-form forms)))
 
 (defun form-arglist (position forms)
   (let* ((form (find-form-around-position position forms))

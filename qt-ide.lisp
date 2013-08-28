@@ -38,10 +38,15 @@
          (vbox (#_new QVBoxLayout central-widget))
          (*main-window* window)
          (toolbar (#_addToolBar window "Tracking"))
-         (text-edit (make-instance 'editor)))
+         (status-bar (#_new QStatusBar))
+         (arglist-display (#_new QLabel))
+         (text-edit (make-instance 'editor
+                                   :arglist-display arglist-display)))
     (#_setCentralWidget window central-widget)
-    (add-widgets vbox text-edit)
+    (add-widgets vbox text-edit status-bar)
     (setf (text-edit window) text-edit)
+    (#_setFont arglist-display *default-qfont*)
+    (#_addPermanentWidget status-bar arglist-display 1)
     (add-qaction toolbar "Open file" window "openFile()"
                  :icon "document-open"
                  :key "Ctrl+o")
@@ -55,3 +60,6 @@
       (let ((contents (alexandria:read-file-into-string file)))
         (#_setPlainText (text-edit window)
                         contents)))))
+
+(defun display-arglist (code position arglist-display)
+  (#_setText arglist-display (or (form-arglist position code) "")))
