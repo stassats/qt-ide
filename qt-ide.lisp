@@ -38,7 +38,7 @@
          (vbox (#_new QVBoxLayout central-widget))
          (*main-window* window)
          (toolbar (#_addToolBar window "Tracking"))
-         (text-edit (#_new QTextEdit)))
+         (text-edit (make-instance 'editor)))
     (#_setCentralWidget window central-widget)
     (add-widgets vbox text-edit)
     (setf (text-edit window) text-edit)

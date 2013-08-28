@@ -11,6 +11,8 @@
                (:file "share")
                (:file "code-muncher")
                (:file "arglists")
+               (:file "colorize")
+               (:file "editor")
                (:file "qt-ide")
                (:file "debugger")
                (:file "streams")

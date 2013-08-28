@@ -99,7 +99,8 @@
                                 (svref table code))))
             (if function
                 (return (funcall function start number stream))
-                (error "No dispatch macro for ~c." char))))))
+                (make-p-illegal :start start
+                                :error (format nil "No dispatch macro for ~c." char)))))))
 
 (defun invoke-reader-macro (reader-macro stream)
   (if (functionp reader-macro)
@@ -196,6 +197,15 @@
          (multiple-value-bind (symbol status) (find-symbol (p-symbol-name p-symbol) package)
            (and status
                 symbol)))))
+
+(defun p-nth (n p-list)
+  (nth n (p-list-items p-list)))
+
+(defun resolve-form-operator (p-list)
+  (and (p-list-p p-list)
+       (p-symbol-p (p-nth 0 p-list))
+       (resolve-p-symbol (car (p-list-items p-list)))))
+
 ;;;
 
 (defun parse-lisp-string (string)
@@ -206,9 +216,12 @@
 
 (defun parse-lisp-code (stream)
   (let* ((char (p-peek-char t stream))
-         (rm-parser (get-reader-macro-parser char nil))
+         (rm-parser (when (characterp char)
+                      (get-reader-macro-parser char nil)))
          (*p-stream* stream))
-    (cond (rm-parser
+    (cond ((eq char *end-of-file*)
+           char)
+          (rm-parser
            (p-read-char stream)
            (invoke-reader-macro rm-parser stream))
           (t
@@ -479,22 +492,27 @@
                     :text (subseq (p-stream-string stream) start end))))
 
 (define-reader-macro-parser (#\") (start stream)
-  (make-p-string
-   :start start
-   :value
-   (with-output-to-string (string)
-     (loop with escaping
-           for char = (p-read-char stream)
-           do
-           (cond (escaping
-                  (write-char char string)
-                  (setf escaping nil))
-                 ((char= char #\\)
-                  (setf escaping t))
-                 ((char= char #\")
-                  (return))
-                 (t
-                  (write-char char string)))))))
+  (let (error)
+    (make-p-string
+     :start start
+     :value
+     (with-output-to-string (string)
+       (loop with escaping
+             for char = (p-read-char stream)
+             do
+             (cond ((eq char *end-of-file*)
+                    (setf error *end-of-file*)
+                    (return))
+                   (escaping
+                    (write-char char string)
+                    (setf escaping nil))
+                   ((char= char #\\)
+                    (setf escaping t))
+                   ((char= char #\")
+                    (return))
+                   (t
+                    (write-char char string)))))
+     :error error)))
 ;;;
 
 (define-dispatching-char-parser (#\# :terminating nil))
