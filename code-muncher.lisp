@@ -214,6 +214,16 @@
         (*p-package* *package*))
     (parse-lisp-code (make-p-stream :string string))))
 
+(defun parse-lisp-string-all (string)
+  (let ((*p-base* *read-base*)
+        (*p-float-format* *read-default-float-format*)
+        (*p-package* *package*))
+    (parse-lisp-code-all (make-p-stream :string string))))
+
+(defun parse-lisp-code-all (stream)
+  (loop until (eql (p-peek-char t stream) *end-of-file*)
+        collect (parse-lisp-code stream)))
+
 (defun parse-lisp-code (stream)
   (let* ((char (p-peek-char t stream))
          (rm-parser (when (characterp char)

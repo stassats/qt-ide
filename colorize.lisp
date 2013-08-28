@@ -22,7 +22,7 @@
 
 (defun colorize (text cursor)
   (init-colors)
-  (let ((code (parse-lisp-string text)))
+  (let ((code (parse-lisp-string-all text)))
     (#_select cursor (#_QTextCursor::Document))
     (#_setCharFormat cursor (#_new QTextCharFormat))
     (colorize-code code cursor)))
@@ -69,5 +69,5 @@
                 (colorize-form code cursor *string-color*))
                (p-comment
                 (colorize-form code cursor *comment-color*)))))
-    (map-code code)))
+    (mapcar #'map-code code)))
 
