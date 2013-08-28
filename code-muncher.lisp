@@ -137,7 +137,7 @@
 
 (defstruct (p-function
             (:include p))
-  (name nil :type (or p-symbol symbol cons)))
+  name)
 
 (defstruct (p-read-eval
             (:include p))
@@ -145,7 +145,7 @@
 
 (defstruct (p-pathname
             (:include p))
-  (namestring nil :type simple-string))
+  namestring)
 
 (defstruct (p-number
             (:include p)
@@ -302,7 +302,8 @@
                          for multiplier = 1 then (* multiplier 10)
                          with remainder
                          do
-                         (setf (values number remainder) (truncate number *p-base*))
+                         (setf (values number remainder)
+                               (truncate number *p-base*))
                          (incf result (* remainder multiplier))
                          when (zerop number)
                          return result)))
@@ -394,7 +395,8 @@
                             (return (make-float-with-exponent 1 char)))
                            ((char= char #\.)
                             (if (or (end-p)
-                                    (terminating-char-p (p-peek-char nil stream)))
+                                    (terminating-char-p
+                                     (p-peek-char nil stream)))
                                 (return (change-base number))
                                 (return (read-float))))
                            ((char= char #\/)
@@ -560,8 +562,9 @@
 
 (define-dispatching-macro-parser (#\# #\') (start parameter stream)
   (declare (ignore parameter))
-  (make-p-function :start start
-                   :name (parse-lisp-form stream)))
+  (let ((*no-p-wrappers* t))
+    (make-p-function :start start
+                     :name (parse-lisp-form stream))))
 
 ;;;
 
