@@ -198,6 +198,10 @@
   condition
   code)
 
+(defstruct (p-char
+            (:include p))
+  name)
+
 (defun resolve-p-symbol (p-symbol)
   (if (symbolp p-symbol)
       p-symbol
@@ -278,6 +282,41 @@
                          (#\l long-float))
                   :test #'char-equal))
       *p-float-format*))
+
+(defun read-symbol-name (stream &optional start)
+  (flet ((convert-case (char)
+           (case (readtable-case *readtable*)
+             (:upcase (char-upcase char))
+             (:downcase (char-downcase char))
+             (:preserve char)
+             (:invert (if (upper-case-p char)
+                          (char-downcase char)
+                          (char-upcase char))))))
+    (with-output-to-string (str)
+      (when start
+        (loop for i from start below (p-stream-position stream)
+              do (write-char (convert-case (char (p-stream-string stream) i))
+                             str)))
+      (loop with escaping
+            with multi-escaping
+            do
+            (let ((char (p-read-char stream)))
+              (cond ((eq char *end-of-file*)
+                     (return))
+                    (escaping
+                     (write-char char str)
+                     (setf escaping nil))
+                    ((char= char #\|)
+                     (setf multi-escaping (not multi-escaping)))
+                    ((char= char #\\)
+                     (setf escaping t))
+                    (multi-escaping
+                     (write-char char str))
+                    ((terminating-char-p char)
+                     (p-unread-char stream)
+                     (return))
+                    (t
+                     (write-char (convert-case char) str))))))))
 
 (defun parse-token (stream &optional symbol-p)
   (let ((start (p-stream-position stream))
@@ -440,40 +479,10 @@
                                 :package package
                                 :external external
                                 :start start)))
-             (convert-case (char)
-               (case (readtable-case *readtable*)
-                 (:upcase (char-upcase char))
-                 (:downcase (char-downcase char))
-                 (:preserve char)
-                 (:invert (if (upper-case-p char)
-                              (char-downcase char)
-                              (char-upcase char)))))
              (read-symbol ()
                (return-from parse-token
                  (create-symbol
-                  (with-output-to-string (str)
-                    (loop for i from start below (p-stream-position stream)
-                          do (write-char (convert-case (char (p-stream-string stream) i))
-                                         str))
-                    (loop with escaping
-                          with multi-escaping
-                          until (end-p)
-                          do
-                          (next-char)
-                          (cond (escaping
-                                 (write-char char str)
-                                 (setf escaping nil))
-                                ((char= char #\|)
-                                 (setf multi-escaping (not multi-escaping)))
-                                ((char= char #\\)
-                                 (setf escaping t))
-                                (multi-escaping
-                                 (write-char char str))
-                                ((terminating-char-p char)
-                                 (unread)
-                                 (return))
-                                (t
-                                 (write-char (convert-case char) str)))))))))
+                  (read-symbol-name stream start)))))
       (if symbol-p
           (read-symbol)
           (let ((number
@@ -685,3 +694,13 @@
 (define-dispatching-macro-parser (#\# #\-) (start parameter stream)
   (declare (ignore parameter))
   (parse-conditional start stream t))
+
+(define-dispatching-macro-parser (#\# #\\) (start parameter stream)
+  (declare (ignore parameter))
+  ;; Start from \ so that the first char is escaped
+  (p-unread-char stream)
+  (let ((name/char (read-symbol-name stream)))
+    (make-p-char :start start
+                 :name (if (= (length name/char) 1)
+                           (char name/char 0)
+                           name/char))))
