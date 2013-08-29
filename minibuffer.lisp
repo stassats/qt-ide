@@ -15,14 +15,15 @@
                 :accessor input-label)
    (input-widget :initform nil
                  :accessor input-widget)
-   (stack :initform nil
-          :accessor stack))
+   (focused :initform nil
+            :accessor focused))
   (:metaclass qt-class)
   (:qt-superclass "QStackedWidget")
   (:slots ("openEditor()" minibuffer-editor)
           ("exitEditor()" minibuffer-exit)
           ("execute()" (lambda (widget)
-                         (execute widget "M-x")))))
+                         (execute widget "M-x")))
+          ("focusChanged(QWidget*,QWidget*)" focus-changed)))
 
 (defmethod initialize-instance :after ((widget minibuffer) &key parent)
   (new-instance widget parent)
@@ -46,7 +47,9 @@
     (#_setCurrentWidget widget output)
     (make-shortcut widget "Alt+x" "execute()")
     (make-shortcut widget "Ctrl+g" "exitEditor()"
-                   :context :widget-with-children)))
+                   :context :widget-with-children)
+    (connect *qapp* "focusChanged(QWidget*,QWidget*)"
+             widget "focusChanged(QWidget*,QWidget*)")))
 
 (defun display (text minibuffer)
   (#_setText (output minibuffer) text))
@@ -59,4 +62,10 @@
     (#_setFocus input)))
 
 (defun minibuffer-exit (minibuffer)
-  (#_setCurrentWidget minibuffer (output minibuffer)))
+  (#_setCurrentWidget minibuffer (output minibuffer))
+  (#_setFocus (focused minibuffer)))
+
+(defun focus-changed (minibuffer old new)
+  (when (and (eql new (input minibuffer))
+             (not (null-qobject-p old)))
+    (setf (focused minibuffer) old)))
