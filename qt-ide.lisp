@@ -22,9 +22,10 @@
 (defclass main-window (window)
   ((save-button :initform nil
                 :accessor save-button)
-   (text-edit :initarg :text-edit
-              :initform nil
-              :accessor text-edit))
+   (text-edit :initform nil
+              :accessor text-edit)
+   (minibuffer :initform nil
+               :accessor minibuffer))
   (:metaclass qt-class)
   (:qt-superclass "QMainWindow")
   (:slots
@@ -38,15 +39,15 @@
          (vbox (#_new QVBoxLayout central-widget))
          (*main-window* window)
          (toolbar (#_addToolBar window "Tracking"))
+         (minibuffer (make-instance 'minibuffer))
          (status-bar (#_new QStatusBar))
-         (arglist-display (#_new QLabel))
          (text-edit (make-instance 'editor
-                                   :arglist-display arglist-display)))
+                                   :minibuffer minibuffer)))
     (#_setCentralWidget window central-widget)
-    (add-widgets vbox text-edit status-bar)
-    (setf (text-edit window) text-edit)
-    (#_setFont arglist-display *default-qfont*)
-    (#_addPermanentWidget status-bar arglist-display 1)
+    (add-widgets vbox text-edit ;; status-bar
+                 minibuffer)
+    (setf (text-edit window) text-edit
+          (minibuffer window) minibuffer)
     (add-qaction toolbar "Open file" window "openFile()"
                  :icon "document-open"
                  :key "Ctrl+o")
@@ -61,5 +62,6 @@
         (#_setPlainText (text-edit window)
                         contents)))))
 
-(defun display-arglist (code position arglist-display)
-  (#_setText arglist-display (or (form-arglist position code) "")))
+(defun display-arglist (code position minibuffer)
+  (display (or (form-arglist position code) "")
+           minibuffer))

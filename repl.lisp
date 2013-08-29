@@ -67,8 +67,8 @@
    (query-stream :initarg :query-stream
                  :initform nil
                  :accessor query-stream)
-   (arglist-display :initform nil
-                    :accessor arglist-display))
+   (minibuffer :initform nil
+               :accessor minibuffer))
   (:metaclass qt-class)
   (:qt-superclass "QDialog")
   (:slots
@@ -92,13 +92,10 @@
          (input (make-instance 'repl-input))
          (package-indicator (make-instance 'package-indicator))
          (timer (#_new QTimer window))
-         (status-bar (#_new QStatusBar))
-         (arglist-display (#_new QLabel)))
-    (add-widgets vbox view status-bar)
+         (minibuffer (make-instance 'minibuffer)))
+    (add-widgets vbox view minibuffer)
     (#_setAlignment view (enum-or (#_Qt::AlignLeft) (#_Qt::AlignTop)))
     (#_setItemIndexMethod scene (#_QGraphicsScene::NoIndex))
-    (#_setFont arglist-display *default-qfont*)
-    (#_addPermanentWidget status-bar arglist-display 1)
     (if (and *repl-channel*
              (channel-alive-p *repl-channel*))
         (flush-channel *repl-channel*)
@@ -118,7 +115,7 @@
           (make-two-way-stream
            (make-instance 'repl-input-stream :window window)
            (make-instance 'repl-output-stream :window window))
-          (arglist-display window) arglist-display)
+          (minibuffer window) minibuffer)
     (update-input window)
     (#_addItem scene input)
     (#_addItem scene package-indicator)
@@ -454,8 +451,8 @@
         (#_setTextCursor input cursor)))))
 
 (defun display-repl-arglist (window)
-  (with-slots (input arglist-display) window
+  (with-slots (input minibuffer) window
     (let* ((parse (parse-lisp-string (#_toPlainText input))))
       (when parse
        (display-arglist parse (#_position (#_textCursor input))
-                        arglist-display)))))
+                        minibuffer)))))

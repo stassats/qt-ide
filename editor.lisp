@@ -7,9 +7,9 @@
 (named-readtables:in-readtable :qt)
 
 (defclass editor ()
-  ((arglist-display :initarg :arglist-display
+  ((minibuffer :initarg :minibuffer
                     :initform nil
-                    :accessor arglist-display)
+                    :accessor minibuffer)
    (parsed :initform nil
            :accessor parsed))
   (:metaclass qt-class)
@@ -20,6 +20,7 @@
 (defmethod initialize-instance :after ((editor editor) &key parent)
   (new-instance editor parent)
   (#_setFont editor *default-qfont*)
+  (#_setAcceptRichText editor nil)
   (connect editor "textChanged()"
            editor "changed()")
   (connect editor "cursorPositionChanged()"
@@ -31,10 +32,10 @@
            (cursor (#_textCursor editor))
            (position (#_position cursor)))
       (colorize code cursor)
-      (display-arglist code position (arglist-display editor))
+      (display-arglist code position (minibuffer editor))
       (setf (parsed editor) code))))
 
 (defun cursor-changed (editor)
   (display-arglist (parsed editor)
                    (#_position (#_textCursor editor))
-                   (arglist-display editor)))
+                   (minibuffer editor)))
