@@ -21,6 +21,7 @@
   (new-instance editor parent)
   (#_setFont editor *default-qfont*)
   (#_setAcceptRichText editor nil)
+  ;(#_setCursorWidth editor 0)
   (connect editor "textChanged()"
            editor "changed()")
   (connect editor "cursorPositionChanged()"

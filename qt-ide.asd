@@ -12,6 +12,7 @@
                (:file "code-muncher")
                (:file "arglists")
                (:file "colorize")
+               (:file "minibuffer")
                (:file "editor")
                (:file "qt-ide")
                (:file "debugger")

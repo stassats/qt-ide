@@ -7,12 +7,8 @@
 (named-readtables:in-readtable :qt)
 
 (defun ide ()
-  (let ((*main-window* (make-instance 'main-window)))
-    (unwind-protect
-         (progn
-           (#_show *main-window*)
-           (#_exec *qapp*))
-      (#_delete *main-window*))))
+  (with-main-window (window (make-instance 'main-window))
+    (#_setCursorFlashTime *qapplication* 0)))
 
 (defmacro without-parent (function)
   `(lambda (x)

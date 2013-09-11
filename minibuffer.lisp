@@ -48,7 +48,7 @@
     (make-shortcut widget "Alt+x" "execute()")
     (make-shortcut widget "Ctrl+g" "exitEditor()"
                    :context :widget-with-children)
-    (connect *qapp* "focusChanged(QWidget*,QWidget*)"
+    (connect *qapplication* "focusChanged(QWidget*,QWidget*)"
              widget "focusChanged(QWidget*,QWidget*)")))
 
 (defun display (text minibuffer)
