@@ -15,6 +15,7 @@
   (:metaclass qt-class))
 
 (defmethod initialize-instance :before ((window window) &key)
+  (make-qapplication)
   (unless *default-qfont*
     (setf *default-qfont* (#_new QFont *default-font* *default-font-size*))
     (#_setFixedPitch *default-qfont* t)))
