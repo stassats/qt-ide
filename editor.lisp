@@ -11,11 +11,15 @@
                     :initform nil
                     :accessor minibuffer)
    (parsed :initform nil
-           :accessor parsed))
+           :accessor parsed)
+   (repl :initarg :repl
+         :initform nil
+         :accessor repl))
   (:metaclass qt-class)
   (:qt-superclass "QTextEdit")
   (:slots ("changed()" text-changed)
-          ("cursorChanged()" cursor-changed)))
+          ("cursorChanged()" cursor-changed)
+          ("compileForm()" compile-form)))
 
 (defmethod initialize-instance :after ((editor editor) &key parent)
   (new-instance editor parent)
@@ -25,7 +29,9 @@
   (connect editor "textChanged()"
            editor "changed()")
   (connect editor "cursorPositionChanged()"
-           editor "cursorChanged()"))
+           editor "cursorChanged()")
+  (make-shortcut editor "Ctrl+f"
+                 "compileForm()" :context :widget))
 
 (defun text-changed (editor)
   (with-signals-blocked (editor)
@@ -40,3 +46,16 @@
   (display-arglist (parsed editor)
                    (#_position (#_textCursor editor))
                    (minibuffer editor)))
+
+(defun form-around-cursor (editor)
+  (let ((form (find-form-around-position (#_position (#_textCursor editor))
+                                         (parsed editor)))
+        (text (#_toPlainText editor)))
+    (when form
+      (subseq text (p-start form)
+              (p-end form)))))
+
+(defun compile-form (editor)
+  (eval-string (form-around-cursor editor)
+               (repl editor)
+               :result-to-minibuffer t))

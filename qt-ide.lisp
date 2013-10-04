@@ -7,8 +7,9 @@
 (named-readtables:in-readtable :qt)
 
 (defun ide ()
-  (with-main-window (window (make-instance 'main-window))
-    (#_setCursorFlashTime *qapplication* 0)))
+  (loop while
+        (plusp (with-main-window (window (make-instance 'main-window))
+                 (#_setCursorFlashTime *qapplication* 0)))))
 
 (defmacro without-parent (function)
   `(lambda (x)
@@ -21,13 +22,20 @@
    (text-edit :initform nil
               :accessor text-edit)
    (minibuffer :initform nil
-               :accessor minibuffer))
+               :accessor minibuffer)
+   (repl :initarg :repl
+         :initform nil
+         :accessor repl))
   (:metaclass qt-class)
   (:qt-superclass "QMainWindow")
   (:slots
    ("openFile()" open-file)
    ("showRepl()"
-    (without-parent repl)))
+    (without-parent repl))
+   ("restart()"
+    (without-parent
+        (lambda ()
+          (#_exit *qapplication* 1)))))
   (:default-initargs :title "IDE"))
 
 (defmethod initialize-instance :after ((window main-window) &key)
@@ -37,19 +45,25 @@
          (toolbar (#_addToolBar window "Tracking"))
          (minibuffer (make-instance 'minibuffer))
          (status-bar (#_new QStatusBar))
+         (repl (make-instance 'repl
+                              :minibuffer minibuffer))
          (text-edit (make-instance 'editor
-                                   :minibuffer minibuffer)))
+                                   :minibuffer minibuffer
+                                   :repl repl)))
     (#_setCentralWidget window central-widget)
-    (add-widgets vbox text-edit ;; status-bar
+    (add-widgets vbox text-edit
+                 repl
+                 ;; status-bar
                  minibuffer)
     (setf (text-edit window) text-edit
-          (minibuffer window) minibuffer)
+          (minibuffer window) minibuffer
+          (repl window) repl)
     (add-qaction toolbar "Open file" window "openFile()"
                  :icon "document-open"
                  :key "Ctrl+o")
-    (add-qaction toolbar "REPL" window "showRepl()"
-                 :icon "utilities-terminal"
-                 :key "Ctrl+r")))
+    (add-qaction toolbar "Restart"
+                 window "restart()"
+                 :icon "view-refresh")))
 
 (defun open-file (window)
   (let ((file (car (file-dialog :parent window))))

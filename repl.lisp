@@ -10,9 +10,6 @@
 (defvar *package-indicator-color* nil)
 (defvar *repl-channel* nil)
 
-(defun repl ()
-  (exec-window (make-instance 'repl)))
-
 (defun short-package-name (package)
   (let* ((name (package-name package))
          (shortest (length name)))
@@ -37,7 +34,7 @@
     (#_setFocus input)
     (stop-overriding)))
 
-(defclass repl (window)
+(defclass repl ()
   ((eval-channel :initform nil
                  :accessor eval-channel)
    (input :initform nil
@@ -56,7 +53,7 @@
                   :accessor item-position)
    (view :initform nil
          :accessor view)
-   (output :initform nil
+   (output :initform (make-instance 'repl-output)
            :accessor output)
    (output-stream :initform nil
                   :accessor output-stream)
@@ -67,74 +64,74 @@
    (query-stream :initarg :query-stream
                  :initform nil
                  :accessor query-stream)
-   (minibuffer :initform nil
+   (minibuffer :initarg :minibuffer
+               :initform nil
                :accessor minibuffer))
   (:metaclass qt-class)
-  (:qt-superclass "QDialog")
+  (:qt-superclass "QGraphicsView")
   (:slots
    ("evaluate()" evaluate)
    ("history(bool)" choose-history)
    ("insertOutput()" insert-output)
    ("insertResults()" insert-results)
+   ("displayResultsMinibuffer()" display-results-minibuffer)
    ("invokeDebugger()" start-debugger)
    ("makeInputVisible(QRectF)" make-input-visible)
    ("queryInput()" query-input)
    ("displayArglist()" display-repl-arglist))
   (:signals ("insertResults()")
+            ("displayResultsMinibuffer()")
             ("invokeDebugger()")
-            ("queryInput()"))
-  (:default-initargs :title "REPL"))
+            ("queryInput()")))
 
-(defmethod initialize-instance :after ((window repl) &key)
-  (let* ((scene (make-instance 'repl-scene :parent window))
-         (vbox (#_new QVBoxLayout window))
-         (view (#_new QGraphicsView scene window))
+(defmethod initialize-instance :after ((repl repl) &key)
+  (new-instance repl)
+  (let* ((scene (make-instance 'repl-scene :parent repl))
          (input (make-instance 'repl-input))
          (package-indicator (make-instance 'package-indicator))
-         (timer (#_new QTimer window))
-         (minibuffer (make-instance 'minibuffer)))
-    (add-widgets vbox view minibuffer)
-    (#_setAlignment view (enum-or (#_Qt::AlignLeft) (#_Qt::AlignTop)))
+         (timer (#_new QTimer repl)))
+    (#_setScene repl scene)
+    (#_setAlignment repl (enum-or (#_Qt::AlignLeft) (#_Qt::AlignTop)))
     (#_setItemIndexMethod scene (#_QGraphicsScene::NoIndex))
     (if (and *repl-channel*
              (channel-alive-p *repl-channel*))
         (flush-channel *repl-channel*)
         (setf *repl-channel* (make-channel-thread "qt-repl")))
-    (setf (eval-channel window) *repl-channel*
-          (timer window) timer
-          (current-package window)
-          (call-in-channel (eval-channel window)
+    (setf (eval-channel repl) *repl-channel*
+          (timer repl) timer
+          (current-package repl)
+          (call-in-channel (eval-channel repl)
                            (lambda () *package*))
-          (input window) input
-          (package-indicator window) package-indicator
-          (scene window) scene
-          (view window) view
-          (output-stream window)
-          (make-instance 'repl-output-stream :window window)
-          (query-stream window)
+          (input repl) input
+          (package-indicator repl) package-indicator
+          (scene repl) scene
+          (output-stream repl)
+          (make-instance 'repl-output-stream :window repl)
+          (query-stream repl)
           (make-two-way-stream
-           (make-instance 'repl-input-stream :window window)
-           (make-instance 'repl-output-stream :window window))
-          (minibuffer window) minibuffer)
-    (update-input window)
+           (make-instance 'repl-input-stream :window repl)
+           (make-instance 'repl-output-stream :window repl)))
+    (update-input repl)
     (#_addItem scene input)
     (#_addItem scene package-indicator)
     (#_setFocus input)
     (connect input "returnPressed()"
-             window "evaluate()")
+             repl "evaluate()")
     (connect input "history(bool)"
-             window "history(bool)")
+             repl "history(bool)")
     (connect input "arglistChanged()"
-             window "displayArglist()")
+             repl "displayArglist()")
     (connect scene "sceneRectChanged(QRectF)"
-             window "makeInputVisible(QRectF)")
-    (connect window "insertResults()"
-             window "insertResults()")
-    (connect window "invokeDebugger()"
-             window "invokeDebugger()")
-    (connect window "queryInput()"
-             window "queryInput()")
-    (connect timer "timeout()" window "insertOutput()")
+             repl "makeInputVisible(QRectF)")
+    (connect repl "insertResults()"
+             repl "insertResults()")
+    (connect repl "displayResultsMinibuffer()"
+             repl "displayResultsMinibuffer()")
+    (connect repl "invokeDebugger()"
+             repl "invokeDebugger()")
+    (connect repl "queryInput()"
+             repl "queryInput()")
+    (connect timer "timeout()" repl "insertOutput()")
     (#_start timer 30)))
 
 (defun adjust-items-after-output (repl amount move)
@@ -323,7 +320,7 @@
     (#_setFocus input)))
 
 (defun make-input-visible (repl rect)
-  (#_centerOn (view repl) (#_bottomLeft rect)))
+  (#_centerOn repl (#_bottomLeft rect)))
 
 (defmacro with-eval-restarts (&body body)
   `(block nil
@@ -368,11 +365,11 @@
 (defun insert-output (repl)
   (with-slots (output output-stream) repl
     (unless (queue-empty-p (queue output-stream))
-      (let* ((output (output repl))
-             (cursor (cursor output))
-             (string (concatenate-output-queue (queue output-stream)))
+      (let* ((string (concatenate-output-queue (queue output-stream)))
              (document (#_document output))
-             (height (#_height (#_size document))))
+             (height (#_height (#_size document)))
+             (output (output repl))
+             (cursor (cursor output)))
         (#_movePosition cursor (#_QTextCursor::End))
         (#_insertText cursor string)
         (cond ((used output)
@@ -387,24 +384,39 @@
 (defun insert-results (repl)
   (insert-output repl)
   (let ((results (channel-result (eval-channel repl))))
-    (cond ((null results)
-           (push (add-string-to-repl "; No values" repl)
-                 (things-to-move repl)))
-          (t
-           (loop for result in results
-                 do
-                 (push (add-result-to-repl result repl)
-                       (things-to-move repl)))))
+    (if results
+        (loop for result in results
+              do
+              (push (add-result-to-repl result repl)
+                    (things-to-move repl)))
+        (push (add-string-to-repl "; No values" repl)
+              (things-to-move repl)))
     (update-input repl)))
+
+(defun display-results-minibuffer (repl)
+  (insert-output repl)
+  (with-slots (minibuffer eval-channel) repl
+    (let ((results (channel-result eval-channel)))
+      (display (if results
+                   (format nil "~{~s~^, ~}" results)
+                   "; No values")
+               minibuffer))))
 
 (defun start-debugger (repl)
   (funcall (pop-queue (debugger-queue repl))))
 
-(defun perform-evaluation (string repl)
+(defun perform-evaluation (string repl result-to-minibuffer)
   (unwind-protect
        (evaluate-string repl string)
     (setf (current-package repl) *package*)
-    (emit-signal repl "insertResults()")))
+    (if result-to-minibuffer
+        (emit-signal repl "displayResultsMinibuffer()")
+        (emit-signal repl "insertResults()"))))
+
+(defun eval-string (string repl &key result-to-minibuffer)
+  (submit-to-channel (eval-channel repl)
+                     (lambda ()
+                       (perform-evaluation string repl result-to-minibuffer))))
 
 (defun evaluate (repl)
   (with-slots (input package-indicator item-position
@@ -419,18 +431,15 @@
        (format nil "~a> ~a"
                (short-package-name current-package) string-to-eval)
        repl)
-      (when (or (null output)
-                (used output))
+      (when (used output)
         (setf output (make-instance 'repl-output)))
       (setf (place output) item-position)
       (adjust-history string-to-eval)
       (setf (history-index input) -1)
-      (submit-to-channel eval-channel
-                         (lambda ()
-                           (perform-evaluation string-to-eval repl))))))
+      (eval-string string-to-eval repl))))
 
 (defun choose-history (window previous-p)
-  (with-slots (input scene last-output-position view) window
+  (with-slots (input scene last-output-position) window
     (let* ((text (#_toPlainText input))
            (current-index (history-index input))
            (next-index (min
