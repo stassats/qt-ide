@@ -404,10 +404,9 @@
                            (t
                             (unread)
                             (read-symbol)))
-
                      finally
                      (when (= divisor 1)
-                       (error "Dot context error."))
+                       (read-symbol))
                      (return (coerce (/ number divisor) *p-float-format*))))
              (read-ratio ()
                (cond ((stop-p)
