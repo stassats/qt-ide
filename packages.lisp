@@ -6,5 +6,4 @@
         #:lparallel.queue)
   (:shadow window)
   (:export
-   #:ide
-   #:repl))
+   #:ide))
