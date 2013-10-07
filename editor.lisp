@@ -83,8 +83,9 @@
          (funcall command editor))))))
 
 (defun remove-flash (editor)
-  (clear-background (shiftf (flashed-region editor) nil)
-                    (#_textCursor editor)))
+  (with-signals-blocked (editor)
+      (clear-background (shiftf (flashed-region editor) nil)
+                        (#_textCursor editor))))
 
 (defun flash-region (p-form editor)
   (with-signals-blocked (editor)

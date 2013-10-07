@@ -61,7 +61,8 @@
 (defun clear-background (form cursor)
   (with-objects ((text-format (#_new QTextCharFormat)))
     (select-form form cursor)
-    (#_clearBackground text-format)
+    ;; Set to the default, so that it will be merged over the existing one
+    (#_setBackground text-format (#_background text-format))
     (#_mergeCharFormat cursor text-format)))
 
 (defun colorize-form (form cursor color)
