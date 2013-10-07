@@ -13,6 +13,7 @@
                (:file "arglists")
                (:file "colorize")
                (:file "key-bindings")
+               (:file "compilation")
                (:file "minibuffer")
                (:file "editor")
                (:file "qt-ide")

@@ -341,6 +341,17 @@
         (multiple-value-list
          (eval (read-from-string string)))))))
 
+(defun %compile-string (repl string)
+  (let* ((output-stream (output-stream repl))
+         (*standard-output* output-stream)
+         (*error-output* output-stream)
+         ;;(*debug-io* (make-two-way-stream *debug-io* output-stream))
+         (*query-io* (make-two-way-stream *query-io* output-stream)))
+    (with-graphic-debugger (repl)
+      (with-eval-restarts
+        (multiple-value-list
+         (compile-form string))))))
+
 (defun adjust-history (new-input)
   (unless (equal new-input (car *repl-history*))
     (let ((stripped (string-trim #(#\Space #\Newline #\Tab #\Return)
@@ -413,10 +424,21 @@
         (emit-signal repl "displayResultsMinibuffer()")
         (emit-signal repl "insertResults()"))))
 
+(defun perform-compilation (string repl)
+  (unwind-protect
+       (%compile-string repl string)
+    (setf (current-package repl) *package*)
+    (emit-signal repl "displayResultsMinibuffer()")))
+
 (defun eval-string (string repl &key result-to-minibuffer)
   (submit-to-channel (eval-channel repl)
                      (lambda ()
                        (perform-evaluation string repl result-to-minibuffer))))
+
+(defun compile-string (string repl)
+  (submit-to-channel (eval-channel repl)
+                     (lambda ()
+                       (perform-compilation string repl))))
 
 (defun evaluate (repl)
   (with-slots (input package-indicator item-position
