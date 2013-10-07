@@ -18,22 +18,31 @@
            :accessor parsed)
    (repl :initarg :repl
          :initform nil
-         :accessor repl))
+         :accessor repl)
+   (timer :initform nil
+          :accessor timer)
+   (flashed-region :initform nil
+                   :accessor flashed-region))
   (:metaclass qt-class)
   (:qt-superclass "QTextEdit")
   (:slots ("changed()" text-changed)
-          ("cursorChanged()" cursor-changed))
+          ("cursorChanged()" cursor-changed)
+          ("removeFlash()" remove-flash))
   (:override ("keyPressEvent" key-press-event)))
 
 (defmethod initialize-instance :after ((editor editor) &key parent)
   (new-instance editor parent)
-  (#_setFont editor *default-qfont*)
-  (#_setAcceptRichText editor nil)
-  ;(#_setCursorWidth editor 0)
-  (connect editor "textChanged()"
-           editor "changed()")
-  (connect editor "cursorPositionChanged()"
-           editor "cursorChanged()"))
+  (let ((timer (#_new QTimer editor)))
+    (setf (timer editor) timer)
+    (#_setSingleShot timer t)
+    (#_setFont editor *default-qfont*)
+    (#_setAcceptRichText editor nil)
+                                        ;(#_setCursorWidth editor 0)
+    (connect editor "textChanged()"
+             editor "changed()")
+    (connect editor "cursorPositionChanged()"
+             editor "cursorChanged()")
+    (connect timer "timeout()" editor "removeFlash()")))
 
 (defun text-changed (editor)
   (with-signals-blocked (editor)
@@ -45,17 +54,19 @@
       (setf (parsed editor) code))))
 
 (defun cursor-changed (editor)
+  ;(:dbg (#_blockNumber (#_textCursor editor)))
   (display-arglist (parsed editor)
                    (#_position (#_textCursor editor))
                    (minibuffer editor)))
 
-(defun form-around-cursor (editor)
-  (let ((form (find-form-around-position (#_position (#_textCursor editor))
-                                         (parsed editor)))
+(defun top-level-form (editor)
+  (let ((form (find-top-level-form (#_position (#_textCursor editor))
+                                   (parsed editor)))
         (text (#_toPlainText editor)))
     (when form
-      (subseq text (p-start form)
-              (p-end form)))))
+      (values (subseq text (p-start form)
+                      (p-end form))
+              form))))
 
 (defmethod key-press-event ((editor editor) event)
   (multiple-value-bind (command description)
@@ -71,11 +82,25 @@
        (when command
          (funcall command editor))))))
 
+(defun remove-flash (editor)
+  (clear-background (shiftf (flashed-region editor) nil)
+                    (#_textCursor editor)))
+
+(defun flash-region (p-form editor)
+  (with-signals-blocked (editor)
+    (colorize-background-form p-form (#_textCursor editor)
+                              *flash-color*)
+    (setf (flashed-region editor) p-form)
+    (#_start (timer editor) 200)))
+
 (define-command "C-c C-c" 'compile-tlf *editor-table*)
 (defun compile-tlf (editor)
-  (let ((form (form-around-cursor editor)))
-    (when form
-      (eval-string form (repl editor) :result-to-minibuffer t))))
+  (multiple-value-bind (form p-form)
+      (top-level-form editor)
+    (cond (form
+           (flash-region p-form editor)
+           (eval-string form (repl editor) :result-to-minibuffer t))
+          ((display "No form around cursor" (minibuffer editor))))))
 
 (defun move-cursor (editor where)
   (let ((cursor (#_textCursor editor)))
@@ -84,11 +109,11 @@
 
 (define-command "C-a" 'move-start-of-line *editor-table*)
 (defun move-start-of-line (editor)
-  (move-cursor editor (#_QTextCursor::StartOfLine)))
+  (move-cursor editor (#_QTextCursor::StartOfBlock)))
 
 (define-command "C-e" 'move-end-of-line *editor-table*)
 (defun move-end-of-line (editor)
-  (move-cursor editor (#_QTextCursor::EndOfLine)))
+  (move-cursor editor (#_QTextCursor::EndOfBlock)))
 
 (define-command "C-p" 'move-previous-line *editor-table*)
 (defun move-previous-line (editor)

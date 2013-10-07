@@ -30,6 +30,20 @@
                     form))))
     (some #'find-form forms)))
 
+(defun find-top-level-form (position forms)
+  (labels ((inside (form)
+             (< (p-start form)
+                position
+                (if (eq (p-error form) *end-of-file*)
+                    (1+ (p-end form))
+                    (p-end form))))
+           (find-form (form)
+             (cond ((p-conditional-p form)
+                    (some #'find-form (p-conditional-code form)))
+                   ((inside form)
+                    form))))
+    (some #'find-form forms)))
+
 (defun form-arglist (position forms)
   (let* ((form (find-form-around-position position forms))
          (list (and (p-list-p form)

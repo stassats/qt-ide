@@ -9,9 +9,10 @@
 (defvar *def-color* "#a020f0")
 (defvar *string-color* "#8b2252")
 (defvar *comment-color* "#b22222")
+(defvar *flash-color* "#fbf826")
 
 (defvar *colors* '(*string-color* *def-color*
-                   *comment-color*))
+                   *comment-color* *flash-color*))
 
 (defun init-colors ()
   (loop for color in *colors*
@@ -41,12 +42,27 @@
   (let ((operator (resolve-form-operator form)))
     (member operator *defining-forms* :test #'eq)))
 
-(defun select-form (form cursor)
-  (#_setPosition cursor (p-start form))
+(defun select-region (start end cursor)
+  (#_setPosition cursor start)
   (#_movePosition cursor
                   (#_QTextCursor::Right)
                   (#_QTextCursor::KeepAnchor)
-                  (- (p-end form) (p-start form))))
+                  (- end start)))
+
+(defun select-form (form cursor)
+  (select-region (p-start form) (p-end form) cursor))
+
+(defun colorize-background-form (form cursor color)
+  (with-objects ((text-format (#_new QTextCharFormat)))
+    (select-form form cursor)
+    (#_setBackground text-format color)
+    (#_mergeCharFormat cursor text-format)))
+
+(defun clear-background (form cursor)
+  (with-objects ((text-format (#_new QTextCharFormat)))
+    (select-form form cursor)
+    (#_clearBackground text-format)
+    (#_mergeCharFormat cursor text-format)))
 
 (defun colorize-form (form cursor color)
   (with-objects ((text-format (#_new QTextCharFormat)))
