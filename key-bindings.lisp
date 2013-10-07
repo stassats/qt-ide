@@ -15,17 +15,35 @@
 (defconstant +alt-modifier+ #x8000000)
 (defconstant +shift-modifier+ #x2000000)
 
+(defparameter *special-char-table*
+  '(("esc" . #x1000000)
+    ("tab" . #x1000001)
+    ("backspace" . #x1000003)
+    ("ret" . #x1000004)))
+
 (defun parse-key-binding (string)
   (let ((stream (make-p-stream :string string)))
-    (labels ((parse-part ()
+    (labels ((parse-special ()
+               (let ((start (p-stream-position stream)))
+                 (loop for char = (p-read-char stream)
+                       until (char= char #\>)
+                       finally
+                       (return
+                         (cdr (assoc (subseq (p-stream-string stream)
+                                             start
+                                             (1- (p-stream-position stream)))
+                                     *special-char-table*
+                                     :test #'equalp))))))
+             (parse-part ()
                (let ((alt 0)
-                     (control 0))
+                     (control 0)
+                     (shift 0))
                  (loop for char = (p-read-char stream)
                        for next-char = (p-peek-char nil stream)
                        until (or (eql next-char *end-of-file*)
                                  (eql next-char #\Space))
                        do
-                       (case char
+                       (ecase char
                          (#\C
                           (assert (zerop control))
                           (assert (eql (p-read-char stream)
@@ -35,7 +53,15 @@
                           (assert (zerop alt))
                           (assert (eql (p-read-char stream)
                                        #\-))
-                          (setf alt +alt-modifier+)))
+                          (setf alt +alt-modifier+))
+                         (#\S
+                          (assert (zerop alt))
+                          (assert (eql (p-read-char stream)
+                                       #\-))
+                          (setf shift +shift-modifier+))
+                         (#\<
+                          (return (logior alt control shift
+                                          (parse-special)))))
                        finally
                        (return (logior alt control
                                        (if (upper-case-p char)
