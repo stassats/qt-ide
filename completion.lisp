@@ -80,7 +80,7 @@
   (with-slots (query query-package) completer
     (setf (items completer)
           (when query
-            (do-find-completions query query-package))))))
+            (do-find-completions query query-package)))))
 
 (defmethod focus-out-event ((widget completer) event)
   (let ((reason (#_reason event)))
