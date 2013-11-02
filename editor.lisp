@@ -205,7 +205,7 @@
          (y (+ (#_y rect) (#_height rect)))
          (position (#_position (#_textCursor editor)))
          (package (current-package editor))
-         (symbol (find-symbol-at-position position (:dbg (parsed editor))))
+         (symbol (find-symbol-at-position position (parsed editor)))
          (list (and symbol
                     (make-instance 'completer
                                    :package package

@@ -16,12 +16,19 @@
              ("focusOutEvent" focus-out-event))
   (:default-initargs :description #'print-symbol-cased))
 
-(defmethod initialize-instance :after ((widget completer) &key query package)
-  (setf (items widget)
-        (find-completions query package))
+(defmethod initialize-instance :after ((widget completer) &key)
+  (find-completions widget)
   (setf (current-index widget) 0))
 
-(defun completion-selected (completer)
+(defun reinit-completions (completer)
+  (let* ((editor (#_parent completer))
+         (position (#_position (#_textCursor editor)))
+         (symbol (find-symbol-at-position position (parsed editor))))
+    (setf (query completer) symbol)
+    (find-completions completer)
+    (setf (current-index completer) 0)))
+
+(defun completion-selected (completer space)
   (let* ((query (query completer))
          (editor (#_parent completer))
          (cursor (#_textCursor editor))
@@ -29,7 +36,9 @@
     (select-form query cursor)
     (with-signals-blocked (editor)
       (#_removeSelectedText cursor))
-    (#_insertText cursor (print-symbol-cased selected))))
+    (#_insertText cursor (format nil "~a~@[ ~]"
+                                (print-symbol-cased selected)
+                                space))))
 
 (defmethod key-press-event ((widget completer) event)
   (let ((key (#_key event))
@@ -37,16 +46,18 @@
     (when (= key (enum-value (#_Qt::Key_Escape)))
       (#_close widget)
       (#_setFocus parent))
-    (when (or (= key (enum-value (#_Qt::Key_Tab)))
-              (= key (enum-value (#_Qt::Key_Enter)))
-              (= key (enum-value (#_Qt::Key_Space))))
-      (completion-selected widget)
-      (#_close widget)
-      (#_setFocus parent)
-      (return-from key-press-event))
-    (stop-overriding)))
+    (let ((space-p (= key (enum-value (#_Qt::Key_Space)))))
+      (when (or space-p
+                (= key (enum-value (#_Qt::Key_Tab)))
+                (= key (enum-value (#_Qt::Key_Return))))
+        (completion-selected widget space-p)
+        (#_close widget)
+        (#_setFocus parent)
+        (return-from key-press-event)))
+    (#_notify *qapplication* parent event)
+    (reinit-completions widget)))
 
-(defun find-completions (query package)
+(defun do-find-completions (query package)
   (let* ((p-symbol-name (p-symbol-name query))
          (p-package (p-symbol-package query))
          (package (typecase p-package
@@ -64,6 +75,12 @@
                 collect symbol)
           #'<
           :key (lambda (x) (length (symbol-name x))))))
+
+(defun find-completions (completer)
+  (with-slots (query query-package) completer
+    (setf (items completer)
+          (when query
+            (do-find-completions query query-package))))))
 
 (defmethod focus-out-event ((widget completer) event)
   (let ((reason (#_reason event)))

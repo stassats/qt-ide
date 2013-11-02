@@ -8,7 +8,7 @@
          (list (and (p-list-p form)
                     (p-list-items form)))
          (symbol (and (consp list)
-                      (typep (car list) 'p-symbol)
+                      (p-symbol-p (car list))
                       (resolve-p-symbol (car list)))))
     (when symbol
       (let ((*print-case* :downcase)

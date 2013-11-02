@@ -479,8 +479,8 @@
         (#_setTextCursor input cursor)))))
 
 (defun display-repl-arglist (window)
-  (with-slots (input minibuffer) window
+  (with-slots (input) window
     (let* ((parse (parse-lisp-string (#_toPlainText input))))
       (when parse
        (display-arglist parse (#_position (#_textCursor input))
-                        minibuffer)))))
+                        *minibuffer*)))))
