@@ -101,12 +101,13 @@
           (let* ((code (char-code (char-downcase char)))
                  (function (and (array-in-bounds-p table code)
                                 (svref table code))))
-            (if function
-                (return (funcall function start number stream))
-                (make-p-illegal :start start
-                                :error
-                                (format nil "No dispatch macro for ~c."
-                                        char)))))))
+            (return
+              (if function
+                  (funcall function start number stream)
+                  (make-p-illegal :start start
+                                  :error
+                                  (format nil "No dispatch macro for ~c."
+                                          char))))))))
 
 (defun invoke-reader-macro (reader-macro stream)
   (if (functionp reader-macro)
