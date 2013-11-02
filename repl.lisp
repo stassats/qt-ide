@@ -63,10 +63,7 @@
                    :accessor debugger-queue)
    (query-stream :initarg :query-stream
                  :initform nil
-                 :accessor query-stream)
-   (minibuffer :initarg :minibuffer
-               :initform nil
-               :accessor minibuffer))
+                 :accessor query-stream))
   (:metaclass qt-class)
   (:qt-superclass "QGraphicsView")
   (:slots
@@ -406,12 +403,12 @@
 
 (defun display-results-minibuffer (repl)
   (insert-output repl)
-  (with-slots (minibuffer eval-channel) repl
+  (with-slots (eval-channel) repl
     (let ((results (channel-result eval-channel)))
       (display (if results
                    (format nil "~{~s~^, ~}" results)
                    "; No values")
-               minibuffer))))
+               *minibuffer*))))
 
 (defun start-debugger (repl)
   (funcall (pop-queue (debugger-queue repl))))

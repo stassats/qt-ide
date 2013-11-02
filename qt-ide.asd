@@ -1,5 +1,3 @@
-;;; -*- Mode: Lisp -*-
-
 (defsystem qt-ide
   :serial t
   :depends-on (qt qt-ui
@@ -14,6 +12,7 @@
                (:file "colorize")
                (:file "key-bindings")
                (:file "compilation")
+               (:file "completion")
                (:file "minibuffer")
                (:file "editor")
                (:file "qt-ide")

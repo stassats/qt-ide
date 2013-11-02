@@ -1,5 +1,3 @@
-;;; -*- Mode: Lisp -*-
-
 ;;; This software is in the public domain and is
 ;;; provided with absolutely no warranty.
 
@@ -7,9 +5,11 @@
 (named-readtables:in-readtable :qt)
 
 (defun ide ()
-  (loop while
-        (plusp (with-main-window (window (make-instance 'main-window))
-                 (#_setCursorFlashTime *qapplication* 0)))))
+  (let (*repl*
+        *minibuffer*)
+   (loop while
+         (plusp (with-main-window (window (make-instance 'main-window))
+                  (#_setCursorFlashTime *qapplication* 0))))))
 
 (defmacro without-parent (function)
   `(lambda (x)
@@ -19,19 +19,12 @@
 (defclass main-window (window)
   ((save-button :initform nil
                 :accessor save-button)
-   (text-edit :initform nil
-              :accessor text-edit)
-   (minibuffer :initform nil
-               :accessor minibuffer)
-   (repl :initarg :repl
-         :initform nil
-         :accessor repl))
+   (editor :initform nil
+              :accessor editor))
   (:metaclass qt-class)
   (:qt-superclass "QMainWindow")
   (:slots
-   ("openFile()" open-file)
-   ("showRepl()"
-    (without-parent repl))
+   ("openFile()" open-file-dialog)
    ("restart()"
     (without-parent
         (lambda ()
@@ -42,22 +35,16 @@
   (let* ((central-widget (#_new QWidget window))
          (vbox (#_new QVBoxLayout central-widget))
          (*main-window* window)
-         (toolbar (#_addToolBar window "Tracking"))
-         (minibuffer (make-instance 'minibuffer))
-         (status-bar (#_new QStatusBar))
-         (repl (make-instance 'repl
-                              :minibuffer minibuffer))
-         (text-edit (make-instance 'editor
-                                   :minibuffer minibuffer
-                                   :repl repl)))
+         (toolbar (#_addToolBar window ""))
+         (minibuffer (setf *minibuffer* (make-instance 'minibuffer)))
+         (repl (setf *repl* (make-instance 'repl)))
+         (editor (make-instance 'editor-tabs)))
     (#_setCentralWidget window central-widget)
-    (add-widgets vbox text-edit
+    (add-widgets vbox editor
                  repl
                  ;; status-bar
                  minibuffer)
-    (setf (text-edit window) text-edit
-          (minibuffer window) minibuffer
-          (repl window) repl)
+    (setf (editor window) editor)
     (add-qaction toolbar "Open file" window "openFile()"
                  :icon "document-open"
                  :key "Ctrl+o")
@@ -65,12 +52,18 @@
                  window "restart()"
                  :icon "view-refresh")))
 
-(defun open-file (window)
+(defun parse-native-namestring (namestring)
+  #+sbcl
+  (sb-ext:native-namestring namestring)
+  #+ccl
+  (ccl:native-translated-namestring namestring)
+  #-(or sbcl ccl)
+  (parse-namestring namestring))
+
+(defun open-file-dialog (window)
   (let ((file (car (file-dialog :parent window))))
     (when file
-      (let ((contents (alexandria:read-file-into-string file)))
-        (#_setPlainText (text-edit window)
-                        contents)))))
+      (open-file (parse-native-namestring file) (editor window)))))
 
 (defun display-arglist (code position minibuffer)
   (display (or (form-arglist position code) "")

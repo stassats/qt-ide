@@ -1,5 +1,3 @@
-;;; -*- Mode: Lisp -*-
-
 ;;; This software is in the public domain and is
 ;;; provided with absolutely no warranty.
 
@@ -129,12 +127,15 @@
 
 (defun get-key-command (key modifiers key-table)
   (declare ((unsigned-byte 32) key modifiers))
-  (cond ((or (zerop modifiers)
-             (= modifiers +shift-modifier+)
-             (= key +control-code+)
-             (= key +alt-code+)
-             (= key +shift-code+)
-             (= key +meta-code+))
+  (cond ((and (not (key-table-state key-table))
+              (or (and (zerop modifiers)
+                       (or (not (ldb-test (byte 11 21) key))
+                           (not (gethash key (key-table-table key-table)))))
+                  (= modifiers +shift-modifier+)
+                  (= key +control-code+)
+                  (= key +alt-code+)
+                  (= key +shift-code+)
+                  (= key +meta-code+)))
          (setf (key-table-sub-table key-table) nil
                (key-table-state key-table) nil)
          (values :insert nil))

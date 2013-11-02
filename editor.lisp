@@ -1,5 +1,3 @@
-;;; -*- Mode: Lisp -*-
-
 ;;; This software is in the public domain and is
 ;;; provided with absolutely no warranty.
 
@@ -10,19 +8,74 @@
 
 (define-command-prefix "C-c" *editor-table*)
 
+(defclass editor-tabs ()
+  ((editors :initarg :editors
+            :initform nil
+            :accessor editors))
+  (:metaclass qt-class)
+  (:qt-superclass "QTabWidget"))
+
+(defmethod initialize-instance :after ((widget editor-tabs) &key parent)
+  (new-instance widget parent)
+  (let ((editor (make-instance 'editor :parent parent)))
+    (#_setDocumentMode widget t)
+    (#_setTabsClosable widget t)
+    (#_addTab widget editor "scratch")))
+
+(defun open-file (file editor-tab)
+  (let* ((contents (alexandria:read-file-into-string file))
+         (editor (make-instance 'editor :parent editor-tab
+                                        :file file)))
+    (#_setPlainText (text-edit editor) contents)
+    (#_addTab editor-tab editor (file-namestring file))
+    (#_setCurrentWidget editor-tab editor)))
+
+;;;
+
 (defclass editor ()
-  ((minibuffer :initarg :minibuffer
-                    :initform nil
-                    :accessor minibuffer)
+  ((file :initarg :file
+         :initform nil
+         :accessor file)
+   (text-edit :initform nil
+              :accessor text-edit)
+   (status-bar :initform nil
+               :accessor status-bar))
+  (:metaclass qt-class)
+  (:qt-superclass "QWidget"))
+
+(defmethod initialize-instance :after ((editor editor) &key parent
+                                                            file)
+  (new-instance editor parent)
+  (let* ((vbox (#_new QVBoxLayout))
+         (status-bar (#_new QStatusBar))
+         (text-edit (make-instance 'text-edit
+                                   :parent editor
+                                   :status-bar status-bar
+                                   :file file))
+         (file-label (#_new QLabel)))
+    (setf (text-edit editor) text-edit)
+    (#_setLayout editor vbox)
+    (#_setContentsMargins vbox 0 0 0 0)
+    (setf (file-label text-edit) file-label)
+    (add-widgets vbox text-edit status-bar)))
+
+(defclass text-edit ()
+  ((file :initarg :file
+         :initform nil
+         :accessor file)
+   (modified :initform nil
+             :accessor modified) 
    (parsed :initform nil
            :accessor parsed)
-   (repl :initarg :repl
-         :initform nil
-         :accessor repl)
    (timer :initform nil
           :accessor timer)
    (flashed-region :initform nil
-                   :accessor flashed-region))
+                   :accessor flashed-region)
+   (status-bar :initarg :status-bar
+               :initform nil
+               :accessor status-bar)
+   (file-label :initform nil
+               :accessor file-label))
   (:metaclass qt-class)
   (:qt-superclass "QTextEdit")
   (:slots ("changed()" text-changed)
@@ -30,14 +83,14 @@
           ("removeFlash()" remove-flash))
   (:override ("keyPressEvent" key-press-event)))
 
-(defmethod initialize-instance :after ((editor editor) &key parent)
+(defmethod initialize-instance :after ((editor text-edit) &key parent)
   (new-instance editor parent)
   (let ((timer (#_new QTimer editor)))
     (setf (timer editor) timer)
     (#_setSingleShot timer t)
     (#_setFont editor *default-qfont*)
     (#_setAcceptRichText editor nil)
-                                        ;(#_setCursorWidth editor 0)
+    ;;(#_setCursorWidth editor 0)
     (connect editor "textChanged()"
              editor "changed()")
     (connect editor "cursorPositionChanged()"
@@ -50,14 +103,14 @@
            (cursor (#_textCursor editor))
            (position (#_position cursor)))
       (colorize code cursor)
-      (display-arglist code position (minibuffer editor))
+      (display-arglist code position *minibuffer*)
       (setf (parsed editor) code))))
 
 (defun cursor-changed (editor)
   ;(:dbg (#_blockNumber (#_textCursor editor)))
   (display-arglist (parsed editor)
                    (#_position (#_textCursor editor))
-                   (minibuffer editor)))
+                   *minibuffer*))
 
 (defun top-level-form (editor)
   (let ((form (find-top-level-form (#_position (#_textCursor editor))
@@ -68,17 +121,17 @@
                       (p-end form))
               form))))
 
-(defmethod key-press-event ((editor editor) event)
+(defmethod key-press-event ((editor text-edit) event)
   (multiple-value-bind (command description)
       (get-key-command (#_key event) (#_modifiers event) *editor-table*)
     (case command
       (:insert (stop-overriding))
       (:undefined (display (format nil "~a is undefined" description)
-                           (minibuffer editor)))
+                           *minibuffer*))
       ((nil)
-       (display description (minibuffer editor)))
+       (display description *minibuffer*))
       (t
-       (display "" (minibuffer editor))
+       (display "" *minibuffer*)
        (when command
          (funcall command editor))))))
 
@@ -100,8 +153,8 @@
       (top-level-form editor)
     (cond (form
            (flash-region p-form editor)
-           (eval-string form (repl editor) :result-to-minibuffer t))
-          ((display "No form around cursor" (minibuffer editor))))))
+           (eval-string form *repl* :result-to-minibuffer t))
+          ((display "No form around cursor" *minibuffer*)))))
 
 (defun move-cursor (editor where)
   (let ((cursor (#_textCursor editor)))
@@ -131,3 +184,16 @@
 (define-command "C-b" 'move-previous-char *editor-table*)
 (defun move-previous-char (editor)
   (move-cursor editor (#_QTextCursor::PreviousCharacter)))
+
+(define-command "<tab>" 'complete *editor-table*)
+(defun complete (editor)
+  (let* ((rect (#_cursorRect editor))
+         (x (#_x rect))
+         (y (#_y rect))
+         (list (make-instance 'list-widget
+                              :items '("a" "b"))))
+    ;; (#_setWindowFlags list (enum-or (#_Qt::SubWindow)
+    ;;                                 (#_Qt::FramelessWindowHint)))
+    (#_setParent list editor)
+    (#_setGeometry list x y 100 200)
+    (#_show list)))

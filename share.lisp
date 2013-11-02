@@ -10,6 +10,9 @@
 (defvar *default-font* "DejaVu Sans Mono")
 (defvar *default-font-size* 12)
 
+(defvar *repl*)
+(defvar *minibuffer*)
+
 (defclass window (qt-ui:window)
   ()
   (:metaclass qt-class))
