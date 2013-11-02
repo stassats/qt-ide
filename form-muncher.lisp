@@ -25,6 +25,28 @@
                     form))))
     (some #'find-form forms)))
 
+(defun find-symbol-at-position (position forms)
+  (labels ((inside (form)
+             (< (p-start form)
+                position
+                (1+ (p-end form))))
+           (at (form)
+             (< (p-start form)
+                position
+                (1+ (p-end form))))
+           (find-form (form)
+             (cond ((p-conditional-p form)
+                    (some #'find-form (p-conditional-code form)))
+                   ((and (p-symbol-p form)
+                         (at form))
+                    form)
+                   ((and (p-list-p form)
+                         (inside form))
+                    (loop for (x . rest) on (p-list-items form)
+                          thereis (find-form x)
+                          while (consp rest))))))
+    (some #'find-form forms)))
+
 (defun find-top-level-form (position forms)
   (labels ((inside (form)
              (< (p-start form)
@@ -39,31 +61,19 @@
                     form))))
     (some #'find-form forms)))
 
-(defun operator-form-p (operator form)
-  (let ((p-symbol (and (p-list-p form)
-                       (car (p-list-items form)))))
-    (when (and (p-symbol-p p-symbol)
-               (eq (resolve-p-symbol p-symbol) operator))
-      (values (cdr (p-list-items form))
-              t))))
-
-(defun symbol-designator-name (p-symbol-designator)
-  (typecase p-symbol-designator
-    (p-symbol (p-symbol-name p-symbol-designator))
-    (p-string  (p-string-value p-symbol-designator))
-    (t "n/a")))
-
 (defun make-package-map (forms)
   (loop for form in forms
         when
         (multiple-value-bind (args found) (operator-form-p 'in-package form)
           (when found
             (cons form
-                  (symbol-designator-name (car args)))))
+                  (or (and (consp args)
+                           (symbol-designator-name (car args)))
+                      "n/a"))))
         collect it))
 
 (defun package-at-position (position map)
-  (let ((result "n/a"))
+  (let (result)
     (loop for (in-package-form . package-name) in map
           for start = (p-start in-package-form) 
           when (>= position start)

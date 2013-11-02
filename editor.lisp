@@ -78,6 +78,8 @@
    (status-bar :initarg :status-bar
                :initform nil
                :accessor status-bar)
+   (current-package :initform (find-package :cl-user)
+                    :accessor current-package) 
    (package-label :initarg :package-label
                   :initform nil
                   :accessor package-label))
@@ -113,11 +115,15 @@
             (package-map editor) (make-package-map code)))))
 
 (defun cursor-changed (editor)
-  ;(:dbg (#_blockNumber (#_textCursor editor)))
-  (let ((position (#_position (#_textCursor editor))))
+  ;;(:dbg (#_blockNumber (#_textCursor editor)))
+  (let* ((position (#_position (#_textCursor editor)))
+         (package-name (package-at-position position (package-map editor)))
+         (package (and package-name
+                       (find-package package-name))))
+    (setf (current-package editor) (or package (find-package :cl-user)))
     (#_setText (package-label editor)
-               (format nil "Package: ~a" (package-at-position position (package-map editor))))
-   (display-arglist (parsed editor) position *minibuffer*)))
+               (format nil "Package: ~a" (or package-name "n/a")))
+    (display-arglist (parsed editor) position *minibuffer*)))
 
 (defun top-level-form (editor)
   (let ((form (find-top-level-form (#_position (#_textCursor editor))
@@ -196,11 +202,17 @@
 (defun complete (editor)
   (let* ((rect (#_cursorRect editor))
          (x (#_x rect))
-         (y (#_y rect))
-         (list (make-instance 'list-widget
-                              :items '("a" "b"))))
-    ;; (#_setWindowFlags list (enum-or (#_Qt::SubWindow)
-    ;;                                 (#_Qt::FramelessWindowHint)))
-    (#_setParent list editor)
-    (#_setGeometry list x y 100 200)
-    (#_show list)))
+         (y (+ (#_y rect) (#_height rect)))
+         (position (#_position (#_textCursor editor)))
+         (package (current-package editor))
+         (symbol (find-symbol-at-position position (:dbg (parsed editor))))
+         (list (and symbol
+                    (make-instance 'completer
+                                   :package package
+                                   :query symbol
+                                   :parent editor))))
+    (when list
+      ;(#_setGeometry list x y 100 200)
+      (#_move list x y)
+      (#_show list)
+      (#_setFocus list))))

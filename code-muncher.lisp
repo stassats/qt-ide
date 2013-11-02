@@ -262,17 +262,37 @@
     (parse-lisp-code stream)))
 
 (defun parse-lisp-code (stream)
-  (loop for code = (parse-lisp-form stream)
-        until (eq code *end-of-file*)
-        if (consp code)
-        nconc code
+  (loop for form = (parse-lisp-form stream)
+        until (eq form *end-of-file*)
+        if (consp form)
+        nconc form
         else
-        collect code))
+        collect form
+        do (let ((package (operator-form-p 'in-package form)))
+             (when (and (consp package)
+                        (p-symbol-p (car package)))
+               (setf *p-package* (symbol-designator-name (car package)))))))
+
+(defun symbol-designator-name (p-symbol-designator)
+  (typecase p-symbol-designator
+    (p-symbol (p-symbol-name p-symbol-designator))
+    (p-string (p-string-value p-symbol-designator))))
+
+(defun operator-form-p (operator form)
+  (let ((p-symbol (and (p-list-p form)
+                       (car (p-list-items form)))))
+    (when (and (p-symbol-p p-symbol)
+               (eq (resolve-p-symbol p-symbol) operator))
+      (values (cdr (p-list-items form))
+              t))))
+
+(defvar *parse-level* -1)
 
 (defun parse-lisp-form (stream)
   (let* ((char (p-peek-char t stream))
          (rm-parser (when (characterp char)
-                      (get-reader-macro-parser char nil))))
+                      (get-reader-macro-parser char nil)))
+         (*parse-level* (1+ *parse-level*)))
     (cond ((eq char *end-of-file*)
            *end-of-file*)
           (rm-parser
