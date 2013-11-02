@@ -72,16 +72,20 @@
 
 (defun print-symbol-cased (symbol)
   (let ((name (symbol-name symbol)))
-    (case (readtable-case *readtable*)
-      (:upcase (if (every #'upper-case-p name)
-                   (string-downcase name)
-                   (format nil "|~a|" name)))
-      (:downcase (if (every #'lower-case-p name)
-                     (string-upcase name)
+    (flet ((case-p (test)
+             (loop for char across name
+                   always (or (not (both-case-p char))
+                              (funcall test char)))))
+      (case (readtable-case *readtable*)
+        (:upcase (if (case-p #'upper-case-p)
+                     (string-downcase name)
                      (format nil "|~a|" name)))
-      (:preserve name)
-      (:invert (map 'string
-                    (lambda (char) (if (upper-case-p char)
-                                       (char-downcase char)
-                                       (char-upcase char)))
-                    name)))))
+        (:downcase (if (case-p #'lower-case-p)
+                       name
+                       (format nil "|~a|" name)))
+        (:preserve name)
+        (:invert (map 'string
+                      (lambda (char) (if (upper-case-p char)
+                                         (char-downcase char)
+                                         (char-upcase char)))
+                      name))))))
