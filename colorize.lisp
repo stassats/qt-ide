@@ -80,6 +80,16 @@
                do
                (colorize-form code cursor *comment-color*)))))
 
+(defun map-cons (function cons)
+  (loop for (car . cdr) on cons
+        do (funcall function car)
+           (cond ((consp cdr))
+                 ((null cdr)
+                  (return))
+                 (t
+                  (funcall function cdr)
+                  (return)))))
+
 (defun colorize-code (code cursor)
   (labels ((map-code (code)
              (typecase code
@@ -88,12 +98,12 @@
                   (when (defining-form-p code)
                     (colorize-form (p-nth 0 code) cursor *def-color*)
                     (pop list))
-                  (mapc #'map-code list)))
+                  (map-cons #'map-code list)))
                (p-string
                 (colorize-form code cursor *string-color*))
                (p-comment
                 (colorize-form code cursor *comment-color*))
                (p-conditional
                 (colorize-conditional code cursor)))))
-    (mapcar #'map-code code)))
+    (map-cons #'map-code code)))
 

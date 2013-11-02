@@ -1,48 +1,7 @@
-;;; -*- Mode: Lisp -*-
-
 ;;; This software is in the public domain and is
 ;;; provided with absolutely no warranty.
 
 (in-package #:qt-ide)
-
-(defun find-form-around-position (position forms)
-  (labels ((inside (form)
-             (< (p-start form)
-                position
-                (if (eq (p-error form) *end-of-file*)
-                    (1+ (p-end form))
-                    (p-end form))))
-           (find-form (form)
-             (cond ((p-conditional-p form)
-                    (some #'find-form (p-conditional-code form)))
-                   ((not (inside form))
-                    nil)
-                   ((p-list-p form)
-                    (or
-                     (loop for (x . rest) on (p-list-items form)
-                           if (and (p-list-p x)
-                                   (not (null (p-list-items x)))
-                                   (find-form x))
-                           return it
-                           while (consp rest))
-                     form))
-                   (t
-                    form))))
-    (some #'find-form forms)))
-
-(defun find-top-level-form (position forms)
-  (labels ((inside (form)
-             (< (p-start form)
-                position
-                (if (eq (p-error form) *end-of-file*)
-                    (1+ (p-end form))
-                    (p-end form))))
-           (find-form (form)
-             (cond ((p-conditional-p form)
-                    (some #'find-form (p-conditional-code form)))
-                   ((inside form)
-                    form))))
-    (some #'find-form forms)))
 
 (defun form-arglist (position forms)
   (let* ((form (find-form-around-position position forms))

@@ -8,6 +8,7 @@
                (:file "channel")
                (:file "share")
                (:file "code-muncher")
+               (:file "form-muncher")
                (:file "arglists")
                (:file "colorize")
                (:file "key-bindings")

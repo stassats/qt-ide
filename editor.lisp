@@ -48,16 +48,17 @@
   (new-instance editor parent)
   (let* ((vbox (#_new QVBoxLayout))
          (status-bar (#_new QStatusBar))
+         (package-label (#_new QLabel))
          (text-edit (make-instance 'text-edit
                                    :parent editor
                                    :status-bar status-bar
-                                   :file file))
-         (file-label (#_new QLabel)))
+                                   :file file
+                                   :package-label package-label)))
     (setf (text-edit editor) text-edit)
     (#_setLayout editor vbox)
     (#_setContentsMargins vbox 0 0 0 0)
-    (setf (file-label text-edit) file-label)
-    (add-widgets vbox text-edit status-bar)))
+    (add-widgets vbox text-edit status-bar)
+    (#_addWidget status-bar package-label)))
 
 (defclass text-edit ()
   ((file :initarg :file
@@ -67,6 +68,9 @@
              :accessor modified) 
    (parsed :initform nil
            :accessor parsed)
+   (package-map :initarg :package-map
+                :initform nil
+                :accessor package-map) 
    (timer :initform nil
           :accessor timer)
    (flashed-region :initform nil
@@ -74,8 +78,9 @@
    (status-bar :initarg :status-bar
                :initform nil
                :accessor status-bar)
-   (file-label :initform nil
-               :accessor file-label))
+   (package-label :initarg :package-label
+                  :initform nil
+                  :accessor package-label))
   (:metaclass qt-class)
   (:qt-superclass "QTextEdit")
   (:slots ("changed()" text-changed)
@@ -104,13 +109,15 @@
            (position (#_position cursor)))
       (colorize code cursor)
       (display-arglist code position *minibuffer*)
-      (setf (parsed editor) code))))
+      (setf (parsed editor) code
+            (package-map editor) (make-package-map code)))))
 
 (defun cursor-changed (editor)
   ;(:dbg (#_blockNumber (#_textCursor editor)))
-  (display-arglist (parsed editor)
-                   (#_position (#_textCursor editor))
-                   *minibuffer*))
+  (let ((position (#_position (#_textCursor editor))))
+    (#_setText (package-label editor)
+               (format nil "Package: ~a" (package-at-position position (package-map editor))))
+   (display-arglist (parsed editor) position *minibuffer*)))
 
 (defun top-level-form (editor)
   (let ((form (find-top-level-form (#_position (#_textCursor editor))
