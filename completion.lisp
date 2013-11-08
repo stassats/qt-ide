@@ -37,7 +37,7 @@
     (with-signals-blocked (editor)
       (#_removeSelectedText cursor))
     (#_insertText cursor (format nil "~a~@[ ~]"
-                                (print-symbol-cased selected)
+                                (print-string-cased selected)
                                 space))))
 
 (defmethod key-press-event ((widget completer) event)
@@ -86,23 +86,3 @@
   (let ((reason (#_reason event)))
     (unless (enum= reason (#_Qt::ActiveWindowFocusReason))
       (#_close widget))))
-
-(defun print-symbol-cased (symbol)
-  (let ((name (symbol-name symbol)))
-    (flet ((case-p (test)
-             (loop for char across name
-                   always (or (not (both-case-p char))
-                              (funcall test char)))))
-      (case (readtable-case *readtable*)
-        (:upcase (if (case-p #'upper-case-p)
-                     (string-downcase name)
-                     (format nil "|~a|" name)))
-        (:downcase (if (case-p #'lower-case-p)
-                       name
-                       (format nil "|~a|" name)))
-        (:preserve name)
-        (:invert (map 'string
-                      (lambda (char) (if (upper-case-p char)
-                                         (char-downcase char)
-                                         (char-upcase char)))
-                      name))))))

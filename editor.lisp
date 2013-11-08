@@ -1,6 +1,3 @@
-;;; This software is in the public domain and is
-;;; provided with absolutely no warranty.
-
 (in-package #:qt-ide)
 (named-readtables:in-readtable :qt)
 
@@ -17,18 +14,22 @@
 
 (defmethod initialize-instance :after ((widget editor-tabs) &key parent)
   (new-instance widget parent)
-  (let ((editor (make-instance 'editor :parent parent)))
+  (let ((editor (make-instance 'editor :parent widget)))
     (#_setDocumentMode widget t)
     (#_setTabsClosable widget t)
     (#_addTab widget editor "scratch")))
 
 (defun open-file (file editor-tab)
-  (let* ((contents (alexandria:read-file-into-string file))
-         (editor (make-instance 'editor :parent editor-tab
-                                        :file file)))
-    (#_setPlainText (text-edit editor) contents)
-    (#_addTab editor-tab editor (file-namestring file))
-    (#_setCurrentWidget editor-tab editor)))
+  (let* ((file (probe-file file))
+         (contents (and file (alexandria:read-file-into-string file)))
+         (editor (and file (make-instance 'editor :parent editor-tab
+                                                  :file file))))
+    (when file
+      (#_setPlainText (text-edit editor) contents)
+      (#_addTab editor-tab editor (file-namestring file))
+      (#_setCurrentWidget editor-tab editor)
+      (push editor (editors editor-tab))
+      editor)))
 
 ;;;
 
@@ -51,6 +52,7 @@
          (package-label (#_new QLabel))
          (text-edit (make-instance 'text-edit
                                    :parent editor
+                                   :editor-tabs parent
                                    :status-bar status-bar
                                    :file file
                                    :package-label package-label)))
@@ -65,12 +67,12 @@
          :initform nil
          :accessor file)
    (modified :initform nil
-             :accessor modified) 
+             :accessor modified)
    (parsed :initform nil
            :accessor parsed)
    (package-map :initarg :package-map
                 :initform nil
-                :accessor package-map) 
+                :accessor package-map)
    (timer :initform nil
           :accessor timer)
    (flashed-region :initform nil
@@ -79,10 +81,13 @@
                :initform nil
                :accessor status-bar)
    (current-package :initform (find-package :cl-user)
-                    :accessor current-package) 
+                    :accessor current-package)
    (package-label :initarg :package-label
                   :initform nil
-                  :accessor package-label))
+                  :accessor package-label)
+   (editor-tabs :initarg :editor-tabs
+                :initform nil
+                :accessor editor-tabs))
   (:metaclass qt-class)
   (:qt-superclass "QTextEdit")
   (:slots ("changed()" text-changed)
@@ -133,6 +138,34 @@
       (values (subseq text (p-start form)
                       (p-end form))
               form))))
+
+(defun visit-file (file tabs)
+  (let ((file (probe-file file)))
+    (if file
+        (loop for editor in (editors tabs)
+              when (equal file (file editor))
+              return editor
+              finally (return (open-file file tabs)))
+        (display (format nil "File ~s not found" file) *minibuffer*))))
+
+(defun go-to (editor position)
+  (#_moveCursor editor (#_QTextCursor::End))
+  (let ((cursor (#_textCursor editor)))
+    (#_setPosition cursor position)
+    (#_setTextCursor editor cursor)))
+
+(defun visit-source-location (editor location)
+  (let ((file (source-location-path location))
+        (position (source-location-position location))
+        (tabs (editor-tabs editor)))
+    (if file
+        (let ((editor (visit-file file tabs)))
+          (when (and editor position)
+            (go-to (text-edit editor) (+ position 2))
+            (#_setCurrentWidget tabs editor)))
+        (display "No file in source location." *minibuffer*))))
+
+;;;
 
 (defmethod key-press-event ((editor text-edit) event)
   (multiple-value-bind (command description)
@@ -212,7 +245,17 @@
                                    :query symbol
                                    :parent editor))))
     (when list
-      ;(#_setGeometry list x y 100 200)
       (#_move list x y)
       (#_show list)
       (#_setFocus list))))
+
+(define-command "M-." 'edit-source *editor-table*)
+(defun edit-source (editor)
+  (let* ((position (#_position (#_textCursor editor)))
+         (symbol (find-symbol-at-position position (parsed editor)))
+         (definitions (find-source symbol)))
+    (if definitions
+        (visit-source-location editor (car definitions))
+        (display (format nil "No definition of ~a."
+                         (print-p-symbol symbol (current-package editor)))
+                 *minibuffer*))))

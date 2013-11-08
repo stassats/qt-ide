@@ -220,6 +220,31 @@
                (and status
                     symbol))))))
 
+(defun print-string-cased (string-designator)
+  (let ((name (string string-designator)))
+    (flet ((case-p (test)
+             (loop for char across name
+                   always (or (not (both-case-p char))
+                              (funcall test char)))))
+      (case (readtable-case *readtable*)
+        (:upcase (if (case-p #'upper-case-p)
+                     (string-downcase name)
+                     (format nil "|~a|" name)))
+        (:downcase (if (case-p #'lower-case-p)
+                       name
+                       (format nil "|~a|" name)))
+        (:preserve name)
+        (:invert (map 'string
+                      (lambda (char) (if (upper-case-p char)
+                                         (char-downcase char)
+                                         (char-upcase char)))
+                      name))))))
+
+(defun print-p-symbol (p-symbol current-package)
+  (declare (ignore current-package))
+  (let ((name (p-symbol-name p-symbol)))
+    (print-string-cased name)))
+
 (defun p-nth (n p-list)
   (nth n (p-list-items p-list)))
 
