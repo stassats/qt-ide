@@ -15,6 +15,7 @@
                (:file "compilation")
                (:file "completion")
                (:file "minibuffer")
+               (:file "source-location")
                (:file "editor")
                (:file "qt-ide")
                (:file "debugger")

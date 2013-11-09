@@ -42,4 +42,3 @@
             when (and sources
                       (mapcar #'convert-source-location sources))
             nconc it))))
-
