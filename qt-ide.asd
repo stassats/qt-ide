@@ -3,7 +3,8 @@
   :depends-on (qt qt-ui
                   alexandria
                   trivial-gray-streams
-                  lparallel)
+                  lparallel
+                  #+sbcl sb-introspect)
   :components ((:file "packages")
                (:file "channel")
                (:file "share")
